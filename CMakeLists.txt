@@ -19,20 +19,32 @@ if(T9IME_USE_LIBGOOGLEPINYIN)
     # 不直接使用上游 CMakeLists（其 cmake_minimum_required(2.6) 与新版 CMake 不兼容，
     # 且链接 pthread、使用 GCC 专用 flag）。这里用可移植目标直接编译其 src/*.cpp。
     file(GLOB GP_SOURCES ${GP_ROOT}/src/*.cpp)
-    add_library(googlepinyin STATIC ${GP_SOURCES})
-    target_include_directories(googlepinyin PUBLIC
-        ${GP_ROOT}/include
-        ${GP_ROOT})
-    if(WIN32)
-        # Windows/MSVC 缺少 POSIX 头（unistd/pthread/sys/time 等）与 Android cutils/log.h，
-        # 由 compat 兼容层补齐。
-        target_include_directories(googlepinyin PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/third_party/compat)
-        target_compile_definitions(googlepinyin PRIVATE _CRT_SECURE_NO_WARNINGS)
+    if(GP_SOURCES)
+        add_library(googlepinyin STATIC ${GP_SOURCES})
+        target_include_directories(googlepinyin PUBLIC
+            ${GP_ROOT}/include
+            ${GP_ROOT})
+        if(WIN32)
+            # Windows/MSVC 缺少 POSIX 头（unistd/pthread/sys/time 等）与 Android cutils/log.h，
+            # 由 compat 兼容层补齐。
+            target_include_directories(googlepinyin PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}/third_party/compat)
+            target_compile_definitions(googlepinyin PRIVATE _CRT_SECURE_NO_WARNINGS)
+        else()
+            find_package(Threads REQUIRED)
+            target_link_libraries(googlepinyin PUBLIC Threads::Threads)
+        endif()
     else()
-        find_package(Threads REQUIRED)
-        target_link_libraries(googlepinyin PUBLIC Threads::Threads)
+        message(WARNING "libgooglepinyin 源码目录不存在 (${GP_ROOT}/src/)，将使用桩实现。")
+        set(T9IME_USE_LIBGOOGLEPINYIN OFF)
     endif()
+endif()
+
+# 应用图标资源（Windows .rc → .ico）
+if(WIN32)
+    set(APP_RC ${CMAKE_CURRENT_SOURCE_DIR}/assets/app.rc)
+    set_source_files_properties(${APP_RC} PROPERTIES
+        OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/app.ico)
 endif()
 
 add_executable(t9ime
@@ -49,6 +61,7 @@ add_executable(t9ime
     src/app/desktop_controller.cpp
     src/app/ally_hid_controller.cpp
     src/ui/overlay.cpp
+    ${APP_RC}
 )
 
 target_include_directories(t9ime PRIVATE src)

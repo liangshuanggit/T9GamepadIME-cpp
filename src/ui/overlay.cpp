@@ -180,6 +180,9 @@ bool Overlay::Create(float opacity) {
     wc.hInstance     = hinst;
     wc.hCursor       = LoadCursor(nullptr, IDC_ARROW);
     wc.hbrBackground = CreateSolidBrush(kPanelBg);
+    // 从 exe 资源加载自定义图标（ID 101），失败时无图标（Overlay 为弹出窗口，图标非关键）
+    wc.hIcon         = LoadIconW(hinst, MAKEINTRESOURCEW(101));
+    wc.hIconSm       = wc.hIcon;
     wc.lpszClassName = L"T9GamepadOverlay";
 
     RegisterClassExW(&wc);

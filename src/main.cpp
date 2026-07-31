@@ -152,6 +152,9 @@ constexpr const wchar_t* kAutoStartKey =
     L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 constexpr const wchar_t* kAutoStartName = L"T9GamepadIME";
 
+// 应用图标资源 ID（与 assets/app.rc 中定义一致）
+constexpr UINT kAppIconId = 101;
+
 // 托盘 WndProc 需要访问的主循环状态（在 main() 中赋值）
 NOTIFYICONDATAW g_nid = {};
 bool g_auto_start = false;
@@ -304,13 +307,18 @@ HWND CreateTrayWindow(HINSTANCE hinst) {
 
 // 添加托盘图标
 void AddTrayIcon(HWND hwnd) {
+    HINSTANCE hinst = GetModuleHandleW(nullptr);
     memset(&g_nid, 0, sizeof(g_nid));
     g_nid.cbSize = sizeof(g_nid);
     g_nid.hWnd = hwnd;
     g_nid.uID = 1;
     g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     g_nid.uCallbackMessage = kTrayCallbackMsg;
-    g_nid.hIcon = LoadIconW(nullptr, (LPCWSTR)IDI_APPLICATION);
+    // 从 exe 资源加载自定义图标；失败时回退到系统默认图标
+    g_nid.hIcon = LoadIconW(hinst, MAKEINTRESOURCEW(kAppIconId));
+    if (!g_nid.hIcon) {
+        g_nid.hIcon = LoadIconW(nullptr, (LPCWSTR)IDI_APPLICATION);
+    }
     wcscpy_s(g_nid.szTip, L"T9 手柄输入法 - 关闭");
     Shell_NotifyIconW(NIM_ADD, &g_nid);
 }

@@ -1,0 +1,8 @@
+// T9 Gamepad IME - Application Resource File
+// Provides the application icon for the executable and system tray.
+
+#include <windows.h>
+
+// Application icon resource (numeric ID 101)
+// Loaded via LoadIconW(hInstance, MAKEINTRESOURCEW(101))
+101 ICON "app.ico"
