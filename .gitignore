@@ -1,0 +1,21 @@
+# 构建产物
+/build/
+/out/
+*.obj
+*.o
+*.exe
+*.lib
+*.a
+*.pdb
+*.ilk
+
+# IDE
+.vs/
+.vscode/
+.idea/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# 用户词典运行时文件
+data/user_dict.dat

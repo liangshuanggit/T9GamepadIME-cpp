@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\cools\Documents\GitHub\T9GamepadIME-cpp\build_test\CMakeFiles\c6d8e34ffc08c9a7c2cc331d78968e1c\RUN_TESTS_force.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{9C1E6F1C-2D81-3020-A1A6-F5636672BD23}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
