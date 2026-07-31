@@ -1,5 +1,6 @@
-# 构建产物
+# ---- 构建产物 ----
 /build/
+/build_test/
 /out/
 *.obj
 *.o
@@ -8,14 +9,39 @@
 *.a
 *.pdb
 *.ilk
+*.exp
+*.idb
 
-# IDE
-.vs/
-.vscode/
-.idea/
+# ---- CMake 生成文件 ----
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.sln
+*.suo
 
-# 用户词典运行时文件
+# ---- IDE / 编辑器 ----
+.vs/
+.vscode/
+.idea/
+*.swp
+*~
+
+# ---- 运行时文件 ----
+# 用户词典（运行时生成）
 data/user_dict.dat
+# 日志文件
+*.log
+
+# ---- TRAE 工具生成 ----
+.trae-html-share-packages/
+
+# ---- 操作系统 ----
+Thumbs.db
+Desktop.ini
+.DS_Store
