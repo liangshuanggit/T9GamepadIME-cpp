@@ -1,0 +1,47 @@
+Source: libgooglepinyin
+Section: libs
+Priority: optional
+Maintainer: Debian Input Method Team <debian-input-method@lists.debian.org>
+Uploaders:
+ Aron Xu <aron@debian.org>,
+ YunQiang Su <wzssyqa@gmail.com>,
+Build-Depends:
+ cmake,
+ debhelper-compat (= 13),
+ pkg-kde-tools,
+Rules-Requires-Root: no
+Standards-Version: 4.6.1
+Homepage: https://code.google.com/archive/p/libgooglepinyin/
+Vcs-Git: https://salsa.debian.org/input-method-team/libgooglepinyin.git
+Vcs-Browser: https://salsa.debian.org/input-method-team/libgooglepinyin
+
+Package: libgooglepinyin0
+Architecture: any
+Multi-Arch: same
+Depends:
+ ${misc:Depends},
+ ${shlibs:Depends},
+Provides:
+ libgooglepinyin,
+Description: Pinyin engine fork from Google Pinyin on Android
+ libgooglepinyin is a fork of Google Pinyin on Android, it features
+ to have excellent input experience and uses little resource.
+ .
+ This package provides the library file.
+
+Package: libgooglepinyin0-dev
+Section: libdevel
+Architecture: any
+Multi-Arch: same
+Depends:
+ libgooglepinyin0 (= ${binary:Version}),
+ ${misc:Depends},
+Provides:
+ libgooglepinyin-dev,
+Conflicts:
+ libgooglepinyin-dev,
+Description: Pinyin engine fork from Google Pinyin on Android - development files
+ libgooglepinyin is a fork of Google Pinyin on Android, it features
+ to have excellent input experience and uses little resource.
+ .
+ This package provides the library development files.

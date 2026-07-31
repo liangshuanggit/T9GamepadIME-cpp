@@ -62,6 +62,10 @@ void ImeController::ClampSelection() {
 void ImeController::ResetState() {
     prev_pointing_ = gamepad::Direction::kNone;
     flick_.Reset();
+    // 重置快捷键状态：设为 true 表示"上一帧组合键已按下"，
+    // 防止模式切换后 XInput 恢复时因残留按键状态导致立即重新触发切换。
+    // 用户需要松开快捷键后再次按下才能触发下一次切换。
+    prev_combo_ = true;
 }
 
 bool ImeController::ToggleComboEdge(const gamepad::XInputPad& pad) {

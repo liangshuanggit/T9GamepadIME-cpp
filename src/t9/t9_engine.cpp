@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "t9/freq_table.h"
 #include "t9/t9_keymap.h"
 
 namespace t9 {
@@ -287,17 +288,19 @@ std::vector<std::string> T9Engine::HanziCandidates(size_t max_results) const {
         all_cands.push_back(ime_->Search(py, max_results));
     }
 
-    // ---- 词频排序 + 轮转选择 ----
+    // ---- 词频排序 + 常用字词加权 ----
     // 策略：
-    // 1. 多字词优先：词长（UTF-8 字符数）越长的词排序越靠前
-    // 2. 同词长按拼音展开顺序（少音节展开的候选先出现）
-    // 3. 同展开内按引擎返回顺序（引擎内置词频排序）
+    // 1. 常用字词优先：查频率表，频率高的词排序靠前
+    // 2. 同频率（含均为 0）时多字词优先：词长越长越靠前
+    // 3. 同词长按拼音展开顺序（少音节展开的候选先出现）
+    // 4. 同展开内按引擎返回顺序（引擎内置词频排序）
     //
-    // 实现：先收集所有候选及其元数据（词长、展开索引、引擎内索引），
-    // 然后按 (词长降序, 展开索引升序, 引擎内索引升序) 排序。
+    // 实现：先收集所有候选及其元数据（频率分数、词长、展开索引、引擎内索引），
+    // 然后按 (频率降序, 词长降序, 展开索引升序, 引擎内索引升序) 排序。
 
     struct Candidate {
         std::string text;
+        int freq_score;       // 常用字词频率分数（0 表示不在表中）
         size_t word_len;      // UTF-8 字符数
         size_t expand_idx;    // 拼音展开索引
         size_t engine_idx;    // 引擎内索引
@@ -312,6 +315,7 @@ std::vector<std::string> T9Engine::HanziCandidates(size_t max_results) const {
             if (seen.insert(hz).second) {
                 all_candidates.push_back({
                     hz,
+                    GetFreqScore(hz),
                     Utf8CharCount(hz),
                     j,
                     i
@@ -320,9 +324,11 @@ std::vector<std::string> T9Engine::HanziCandidates(size_t max_results) const {
         }
     }
 
-    // 排序：多字词优先，同词长按展开顺序，同展开按引擎顺序
+    // 排序：频率高的优先，同频率多字词优先，同词长按展开顺序，同展开按引擎顺序
     std::stable_sort(all_candidates.begin(), all_candidates.end(),
         [](const Candidate& a, const Candidate& b) {
+            if (a.freq_score != b.freq_score)
+                return a.freq_score > b.freq_score;  // 频率降序
             if (a.word_len != b.word_len)
                 return a.word_len > b.word_len;  // 词长降序
             if (a.expand_idx != b.expand_idx)

@@ -1,0 +1,4 @@
+usr/include/*
+usr/lib/*/libgooglepinyin.a
+usr/lib/*/lib*.so
+usr/lib/*/pkgconfig/*

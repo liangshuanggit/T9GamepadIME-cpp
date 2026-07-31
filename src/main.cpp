@@ -226,28 +226,25 @@ void ToggleIme() {
                 MakeOverlayState(*g_engine, *g_ime, *g_cfg, g_pad_connected));
         }
     }
-    // 硬件模式切换：
-    //   IME 开启 → ROG Ally 切换到游戏手柄模式（XInput 可用，T9 输入正常）
-    //   IME 关闭 → ROG Ally 切换到硬件鼠标模式（右触摸板变为鼠标）
-    //               此时 XInput 停止工作，需用 Ctrl+Alt+E 或托盘左键切回。
-    if (g_has_ally && g_ally_hid) {
-        bool hw_ok = en ? g_ally_hid->SetGamepadMode()
-                        : g_ally_hid->SetMouseMode();
-        if (!hw_ok) {
-            std::string err = std::string("[Toggle] 硬件模式切换失败: ")
+    // 硬件模式策略：
+    //   ROG Ally 始终保持游戏手柄模式（XInput 可用），确保 Start 键始终可检测。
+    //   IME 关闭时不切换到硬件鼠标模式，而是用软件 DesktopController 模拟桌面操控。
+    //   （SetMouseMode 会导致 XInput 停止工作，Start 键无法检测，快捷键失效。）
+    if (g_has_ally && g_ally_hid && en) {
+        // 仅在开启时确保处于游戏手柄模式
+        if (!g_ally_hid->SetGamepadMode()) {
+            std::string err = std::string("[Toggle] SetGamepadMode 失败: ")
                             + g_ally_hid->LastError() + "\n";
             WriteLog(err.c_str());
         }
     }
-    // 软件桌面控制器：仅非 ROG Ally 设备在 IME 关闭时使用
-    // ROG Ally 在硬件鼠标模式下 XInput 不工作，软件控制器无意义
-    if (g_desktop) g_desktop->SetActive(!en && !g_has_ally);
+    // 软件桌面控制器：IME 关闭时对所有设备激活（含 ROG Ally）
+    if (g_desktop) g_desktop->SetActive(!en);
     // 刷新两个控制器的内部状态，防止过期状态导致按键功能不生效
     if (g_desktop) g_desktop->ResetState();
     g_ime->ResetState();
     WriteLog(en ? "[Toggle] -> 游戏手柄输入模式\n"
-                  : (g_has_ally ? "[Toggle] -> 硬件鼠标模式\n"
-                                  : "[Toggle] -> 桌面操控模式（软件）\n"));
+                  : "[Toggle] -> 桌面操控模式（软件）\n");
     UpdateTrayTooltip(en);
 }
 
@@ -414,26 +411,18 @@ int main(int argc, char** argv) {
     bool has_ally = ally_hid.IsSupported();
 
     // 初始模式设置
-    // 启动时始终确保设备处于游戏手柄模式（XInput），以便手柄 Start 键能被检测到。
-    // IME 关闭时：ROG Ally 使用硬件鼠标模式（在切换时设置），非 ROG Ally 使用软件 DesktopController。
+    // 启动时不切换硬件模式，保持设备当前状态。
+    // ROG Ally 始终保持游戏手柄模式（XInput 可用），IME 关闭时用软件 DesktopController。
+    // 非 ROG Ally：始终使用软件 DesktopController 模拟桌面操控。
     if (has_ally) {
-        WriteLog("[Init] 检测到 ROG Ally，确保设备处于游戏手柄模式\n");
-        bool hw_ok = ally_hid.SetGamepadMode();
-        if (hw_ok) {
-            WriteLog("[Init] ROG Ally 已设置为游戏手柄模式\n");
-        } else {
-            has_ally = false;
-            std::string err = std::string("[Init] 硬件切换失败: ")
-                            + ally_hid.LastError() + "\n";
-            WriteLog(err.c_str());
-        }
+        WriteLog("[Init] 检测到 ROG Ally，启动时不切换模式（保持当前状态）\n");
     } else {
         std::string err = std::string("[Init] 未检测到 ROG Ally: ")
                         + ally_hid.LastError() + "\n";
         WriteLog(err.c_str());
     }
-    // 软件桌面控制器：仅非 ROG Ally 设备在 IME 关闭时使用
-    desktop.SetActive(!ime.Enabled() && !has_ally);
+    // IME 关闭时对所有设备激活软件桌面控制器（含 ROG Ally）
+    desktop.SetActive(!ime.Enabled());
     gamepad::XInputPad pad(0);
 
     // 创建覆盖层（初始隐藏）
@@ -510,16 +499,13 @@ int main(int argc, char** argv) {
             if (en) {
                 overlay.Refresh(MakeOverlayState(engine, ime, cfg, pad.Connected()));
             }
-            // 硬件模式切换：
-            //   IME 开启 → 游戏手柄模式（XInput 可用）
-            //   IME 关闭 → 硬件鼠标模式（右触摸板变为鼠标）
-            //               XInput 停止工作，需用 Ctrl+Alt+E 或托盘左键切回
-            if (has_ally) {
-                bool hw_ok = en ? ally_hid.SetGamepadMode()
-                                : ally_hid.SetMouseMode();
-                if (!hw_ok && en) {
-                    // 仅游戏手柄模式切换失败时降级（鼠标模式失败不降级，
-                    // 因为用户可能就是想用鼠标模式）
+            // 硬件模式策略：
+            //   ROG Ally 始终保持游戏手柄模式（XInput 可用），确保 Start 键始终可检测。
+            //   IME 关闭时不切换到硬件鼠标模式，而是用软件 DesktopController 模拟桌面操控。
+            //   （SetMouseMode 会导致 XInput 停止工作，Start 键无法检测，快捷键失效。）
+            if (has_ally && en) {
+                if (!ally_hid.SetGamepadMode()) {
+                    // 游戏手柄模式切换失败时降级为软件模式
                     has_ally = false;
                     g_has_ally = false;
                     std::string err = std::string("[Hotkey] SetGamepadMode 失败: ")
@@ -527,14 +513,13 @@ int main(int argc, char** argv) {
                     WriteLog(err.c_str());
                 }
             }
-            // 软件桌面控制器：仅非 ROG Ally 设备在 IME 关闭时使用
-            desktop.SetActive(!en && !has_ally);
+            // 软件桌面控制器：IME 关闭时对所有设备激活（含 ROG Ally）
+            desktop.SetActive(!en);
             // 刷新两个控制器的内部状态，防止过期状态导致按键功能不生效
             desktop.ResetState();
             ime.ResetState();
             WriteLog(en ? "[Hotkey] -> 游戏手柄输入模式\n"
-                          : (has_ally ? "[Hotkey] -> 硬件鼠标模式\n"
-                                        : "[Hotkey] -> 桌面操控模式（软件）\n"));
+                          : "[Hotkey] -> 桌面操控模式（软件）\n");
             UpdateTrayTooltip(en);
             changed = true;
         }

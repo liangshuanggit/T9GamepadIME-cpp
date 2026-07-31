@@ -1,0 +1,104 @@
+libgooglepinyin (0.1.2-8) unstable; urgency=medium
+
+  * Team upload.
+  * debian/control: Bump Standards-Version to 4.6.1.
+  * debian/rules: Enable lto build. (Closes: #1015491)
+  * Update symbols to mark the ones disappearing in LTO builds
+    as optional.
+
+ -- Boyuan Yang <byang@debian.org>  Wed, 27 Jul 2022 12:15:27 -0400
+
+libgooglepinyin (0.1.2-7) unstable; urgency=medium
+
+  * Team upload.
+  * Rebuild after Debian 11 release.
+  * Refresh packaging:
+    + Bump Standards-Version to 4.6.0 (no changes needed).
+    + Bump debhelper-compat to v13.
+  * debian/control: Use "Rules-Requires-Root: no".
+  * debian/rules: Clean up old override on dh_missing and dh_strip.
+
+ -- Boyuan Yang <byang@debian.org>  Wed, 18 Aug 2021 11:56:34 -0400
+
+libgooglepinyin (0.1.2-6) unstable; urgency=medium
+
+  * Team upload.
+  * debian/control:
+    + Bump Standards-Version to 4.1.5 (no changes needed).
+    + Use git repository under Salsa input-method-team for Vcs fields.
+    + Add pkg-kde-tools as new build-dependency to better handle symbols.
+  * debian/libgooglepinyin0.symbols: Reconfirm symbols using buildd logs.
+  * debian/rules: Use "dh --with pkgkde_symbolshelper".
+
+ -- Boyuan Yang <073plan@gmail.com>  Fri, 27 Jul 2018 12:27:19 +0800
+
+libgooglepinyin (0.1.2-5) unstable; urgency=medium
+
+  [ Boyuan Yang ]
+  * Team upload.
+  * debian: Apply "wrap-and-sort -abst".
+  * d/control: Set maintainer to debian-input-method@lists.debian.org.
+    Closes: #899574.
+  * d/control: Set homepage to
+    https://code.google.com/archive/p/libgooglepinyin/.
+  * d/control: Point Vcs fields to Salsa platform.
+  * d/control: Bump Standards-Version to 4.1.4.
+  * debian: Drop old -dbg package in favour of automatic -dbgsym packages.
+  * debian: Bump debhelper compat to v11.
+  * d/rules:
+    - Drop manual LDFLAGS manipulation in favour of DEB_LDFLAGS_MAINT_APPEND.
+    - Use "dh_missing --fail-missing".
+  * d/watch: Removed, there won't be any releases anymore.
+  * d/copyright: Refresh format and information.
+  * d/libgooglepinyin-dev.install: Explicitly install static library file.
+  * d/libgooglepinyin0.symbols: Refresh symbols with build log.
+
+  [ Mike Gabriel ]
+  * Upload sponsored. (Closes: #901938).
+
+ -- Boyuan Yang <073plan@gmail.com>  Wed, 20 Jun 2018 20:20:26 +0800
+
+libgooglepinyin (0.1.2-4) unstable; urgency=medium
+
+  * Upload to unstable
+
+ -- Aron Xu <aron@debian.org>  Sun, 16 Aug 2015 16:54:38 +0800
+
+libgooglepinyin (0.1.2-3) experimental; urgency=medium
+
+  * Update symbols for 32-bit architectures
+
+ -- Aron Xu <aron@debian.org>  Tue, 10 Feb 2015 04:53:01 +0800
+
+libgooglepinyin (0.1.2-2) experimental; urgency=medium
+
+  * Add symbols.
+  * Update debian/copyright.
+  * Enable all hardening features.
+  * Remove useless DMUA.
+  * Update Uploaders.
+  * Use canonical VCS-*
+  * Require debhelper >= 9.
+  * Bump std-ver to 3.9.6, no change.
+
+ -- Aron Xu <aron@debian.org>  Fri, 09 Jan 2015 19:35:37 +0800
+
+libgooglepinyin (0.1.2-1) unstable; urgency=low
+
+  * New upstream release.
+
+ -- Aron Xu <aron@debian.org>  Fri, 03 Feb 2012 21:41:29 +0800
+
+libgooglepinyin (0.1.1+hg20111109-1) unstable; urgency=low
+
+  * New upstream snapshot:
+    + Change the data's path, per Policy 9.1.1 (Closes: #646958)
+    + Add big endian support.
+
+ -- Aron Xu <aron@debian.org>  Tue, 08 Nov 2011 21:24:11 +0800
+
+libgooglepinyin (0.1.1-1) unstable; urgency=low
+
+  * Initial release (Closes: #633106)
+
+ -- Aron Xu <aron@debian.org>  Mon, 05 Sep 2011 17:53:28 +0800
