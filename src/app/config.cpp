@@ -107,6 +107,9 @@ bool Config::LoadFromFile(const std::string& path) {
             stick_activate = static_cast<float>(std::atof(value.c_str()));
         } else if (IEquals(key, "stick_release")) {
             stick_release = static_cast<float>(std::atof(value.c_str()));
+        } else if (IEquals(key, "long_press_ms")) {
+            long_press_ms = std::atoi(value.c_str());
+            if (long_press_ms < 0) long_press_ms = 0;
         } else if (IEquals(key, "candidate_page")) {
             candidate_page = std::atoi(value.c_str());
             if (candidate_page < 1) candidate_page = 1;

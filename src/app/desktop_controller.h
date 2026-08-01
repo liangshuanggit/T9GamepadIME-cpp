@@ -35,6 +35,9 @@ public:
     // 处理一帧手柄输入。活跃时发送鼠标/键盘事件，非活跃时仅跟踪状态。
     void Update(const gamepad::XInputPad& pad);
 
+    // IME 关闭（界面隐藏）后调用：向前台发送两次 Ctrl+Alt+C。
+    void PressCtrlAltCTwice();
+
     // 重置所有按键边沿状态（模式切换时调用，防止过期状态导致误触发）
     void ResetState();
 

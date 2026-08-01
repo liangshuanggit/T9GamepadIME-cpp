@@ -14,6 +14,7 @@
 
 #include "app/text_injector.h"
 #include "t9/keypad.h"
+#include "t9/t9_keymap.h"
 
 namespace app {
 
@@ -27,7 +28,8 @@ ImeController::ImeController(t9::T9Engine* engine, const Config& cfg)
     : engine_(engine),
       cfg_(cfg),
       enabled_(cfg.start_enabled),
-      flick_(cfg.stick_activate, cfg.stick_release) {
+      flick_(cfg.stick_activate, cfg.stick_release),
+      last_update_(std::chrono::steady_clock::now()) {
     // 初始化候选：无输入时显示常用标点
     RefreshCandidates();
 }
@@ -37,9 +39,16 @@ int ImeController::PageStart() const {
     return (selected_ / cfg_.candidate_page) * cfg_.candidate_page;
 }
 
+std::string ImeController::LetterText() const {
+    return letter_digit_ ? t9::LetterLabelForDigit(letter_digit_) : std::string();
+}
+
 void ImeController::RefreshCandidates() {
-    // 有数字输入时，从引擎获取汉字候选
-    if (!engine_->Digits().empty()) {
+    if (letter_mode_) {
+        // 字母候选模式：显示该键的大写字母、数字、小写字母（"ABC2abc"）
+        candidates_ = t9::LetterCandidatesForDigit(letter_digit_);
+    } else if (!engine_->Digits().empty()) {
+        // 有数字输入时，从引擎获取汉字候选
         candidates_ = engine_->HanziCandidates(kMaxCandidates);
     } else {
         // 无输入时显示常用标点，用户可直接选择上屏
@@ -62,10 +71,34 @@ void ImeController::ClampSelection() {
 void ImeController::ResetState() {
     prev_pointing_ = gamepad::Direction::kNone;
     flick_.Reset();
+    letter_mode_ = false;
+    letter_digit_ = 0;
+    long_press_dir_ = gamepad::Direction::kNone;
+    long_press_elapsed_ms_ = 0;
+    long_press_consumed_ = false;
+    last_update_ = std::chrono::steady_clock::now();
     // 重置快捷键状态：设为 true 表示"上一帧组合键已按下"，
     // 防止模式切换后 XInput 恢复时因残留按键状态导致立即重新触发切换。
     // 用户需要松开快捷键后再次按下才能触发下一次切换。
     prev_combo_ = true;
+}
+
+void ImeController::EnterLetterMode(gamepad::Direction dir) {
+    char digit = t9::DigitForDirection(dir);
+    if (digit == 0) return;
+    // 长按进入字母候选：清空拼音数字串，显示该键的字母/数字候选
+    engine_->Clear();
+    letter_mode_ = true;
+    letter_digit_ = digit;
+    selected_ = 0;
+    RefreshCandidates();
+}
+
+void ImeController::ExitLetterMode() {
+    letter_mode_ = false;
+    letter_digit_ = 0;
+    selected_ = 0;
+    RefreshCandidates();
 }
 
 bool ImeController::ToggleComboEdge(const gamepad::XInputPad& pad) {
@@ -100,6 +133,10 @@ bool ImeController::Update(const gamepad::XInputPad& pad) {
     // 3) 右摇杆拨动 -> 触发九宫格键位
     gamepad::Direction fired = flick_.Update(pad.RightStickX(), pad.RightStickY());
     if (fired != gamepad::Direction::kNone) {
+        // 新的拨动：先退出字母候选模式
+        if (letter_mode_) {
+            ExitLetterMode();
+        }
         char digit = t9::DigitForDirection(fired);
         if (digit) {
             engine_->PushKey(digit);
@@ -108,10 +145,40 @@ bool ImeController::Update(const gamepad::XInputPad& pad) {
             changed = true;
         }
     }
+
     // 指向变化也需重绘（更新九宫格高亮）
     if (flick_.Pointing() != prev_pointing_) {
         prev_pointing_ = flick_.Pointing();
         changed = true;
+    }
+
+    // 3b) 长按检测：保持锁定方向不回中超过阈值 -> 进入该键的字母候选模式
+    {
+        auto now = std::chrono::steady_clock::now();
+        int dt = static_cast<int>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - last_update_).count());
+        last_update_ = now;
+
+        if (!letter_mode_ && flick_.Pointing() != gamepad::Direction::kNone) {
+            if (long_press_dir_ == flick_.Pointing()) {
+                long_press_elapsed_ms_ += dt;
+                if (!long_press_consumed_ &&
+                    long_press_elapsed_ms_ >= cfg_.long_press_ms) {
+                    long_press_consumed_ = true;
+                    EnterLetterMode(flick_.Pointing());
+                    changed = true;
+                }
+            } else {
+                long_press_dir_ = flick_.Pointing();
+                long_press_elapsed_ms_ = 0;
+                long_press_consumed_ = false;
+            }
+        } else {
+            long_press_dir_ = gamepad::Direction::kNone;
+            long_press_elapsed_ms_ = 0;
+            long_press_consumed_ = false;
+        }
     }
 
     // 4) 十字键：左右切换候选，上下翻页
@@ -144,14 +211,24 @@ bool ImeController::Update(const gamepad::XInputPad& pad) {
             just_injected_ = true;
             engine_->Clear();
             selected_ = 0;
-            RefreshCandidates();
+            if (letter_mode_) {
+                // 字母候选模式下屏后退出字母模式
+                ExitLetterMode();
+            } else {
+                RefreshCandidates();
+            }
             changed = true;
         }
     }
 
     // 6) B 退格
     if (pad.Pressed(gamepad::Button::kB)) {
-        if (!engine_->Digits().empty()) {
+        if (letter_mode_) {
+            // 字母候选模式：取消并退出
+            ExitLetterMode();
+            engine_->Clear();
+            changed = true;
+        } else if (!engine_->Digits().empty()) {
             // 有数字输入：删除最后一位数字
             engine_->PopKey();
             selected_ = 0;

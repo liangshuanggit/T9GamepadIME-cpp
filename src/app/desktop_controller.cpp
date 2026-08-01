@@ -93,6 +93,32 @@ void DesktopController::ClickMouse(int button) {
     SendInput(2, inputs, sizeof(INPUT));
 }
 
+void DesktopController::PressCtrlAltCTwice() {
+    // 连续发送两次完整的 Ctrl+Alt+C（按下组合 -> 释放 -> 再次按下组合 -> 释放），
+    // 用于触发某些软件/设备的快捷键动作（如手柄与键鼠模式的切换）。
+    for (int i = 0; i < 2; ++i) {
+        INPUT inputs[6] = {};
+        inputs[0].type = INPUT_KEYBOARD;
+        inputs[0].ki.wVk = VK_CONTROL;
+        inputs[1].type = INPUT_KEYBOARD;
+        inputs[1].ki.wVk = VK_MENU;
+        inputs[2].type = INPUT_KEYBOARD;
+        inputs[2].ki.wVk = 'C';
+        inputs[3].type = INPUT_KEYBOARD;
+        inputs[3].ki.wVk = 'C';
+        inputs[3].ki.dwFlags = KEYEVENTF_KEYUP;
+        inputs[4].type = INPUT_KEYBOARD;
+        inputs[4].ki.wVk = VK_MENU;
+        inputs[4].ki.dwFlags = KEYEVENTF_KEYUP;
+        inputs[5].type = INPUT_KEYBOARD;
+        inputs[5].ki.wVk = VK_CONTROL;
+        inputs[5].ki.dwFlags = KEYEVENTF_KEYUP;
+        SendInput(6, inputs, sizeof(INPUT));
+        // 两次之间留出间隔，避免被目标程序合并为一次
+        Sleep(100);
+    }
+}
+
 #else  // 非 Windows 桩实现
 
 void DesktopController::SetActive(bool active) { active_ = active; }
@@ -100,6 +126,7 @@ void DesktopController::MoveMouse(float, float) {}
 void DesktopController::ScrollWheel(int) {}
 void DesktopController::ClickKey(unsigned short) {}
 void DesktopController::ClickMouse(int) {}
+void DesktopController::PressCtrlAltCTwice() {}
 
 #endif
 

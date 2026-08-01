@@ -3,6 +3,7 @@
 用手柄（XInput）驱动的 **T9 中文拼音输入法**，C++17 编写，拼音解码内核采用成熟开源框架
 [libgooglepinyin](https://github.com/qgears/libgooglepinyin)（Google 拼音输入法开源核心，
 即 Android 原生 PinyinIME 引擎）。
+注：要先在Armoury Crate SE 中设置打开控制中心的快捷键为CTRL+ALT+C才能实现功能
 
 ## 目录结构
 
@@ -59,10 +60,11 @@ T9GamepadIME-cpp/
 | 输入                | 功能                          |
 |---------------------|-------------------------------|
 | 右摇杆 8 方向拨动    | 触发对应九宫格键位一次（T9）  |
+| 右摇杆长按（方向不回中）| 进入该键字母候选（如 '2' 显示 "ABC2abc"）|
 | 十字键 ← / →        | 上一个 / 下一个候选           |
 | 十字键 ↑ / ↓        | 候选上一页 / 下一页           |
 | A                   | 确认上屏当前候选              |
-| B                   | 退格                          |
+| B                   | 退格 / 取消字母候选           |
 | 开关快捷键（可配置）| 切换 开启/关闭（默认 Back+Start）|
 | 控制台 ESC          | 退出程序                      |
 
@@ -76,7 +78,8 @@ T9GamepadIME-cpp/
 | `toggle_hotkey` | 开关组合键，用 `+` 连接               | `Back+Start`|
 | `stick_activate`| 拨动触发幅度阈值 (0~1)                 | `0.6`       |
 | `stick_release` | 回中阈值，低于此才能再次触发 (0~1)    | `0.35`      |
-| `candidate_page`| 候选每页数量                          | `5`         |
+| `long_press_ms` | 长按触发字母候选的持续时间 (毫秒)      | `500`       |
+| `candidate_page`| 候选每页数量                          | `8`         |
 | `start_enabled` | 启动时是否已开启 (true/false)         | `false`     |
 
 可用按钮名：`A B X Y LB RB Start Back DpadUp DpadDown DpadLeft DpadRight`

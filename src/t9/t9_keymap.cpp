@@ -1,5 +1,7 @@
 #include "t9/t9_keymap.h"
 
+#include <cctype>
+
 namespace t9 {
 
 namespace {
@@ -41,6 +43,30 @@ std::string PinyinToDigits(const std::string& pinyin) {
         digits.push_back(key);
     }
     return digits;
+}
+
+std::vector<std::string> LetterCandidatesForDigit(char digit) {
+    std::vector<std::string> out;
+    const std::string& letters = LettersForKey(digit);
+    if (letters.empty()) return out;
+    // 大写字母
+    for (char c : letters) out.emplace_back(1, static_cast<char>(std::toupper(c)));
+    // 数字
+    out.emplace_back(1, digit);
+    // 小写字母
+    for (char c : letters) out.emplace_back(1, c);
+    return out;
+}
+
+std::string LetterLabelForDigit(char digit) {
+    const std::string& letters = LettersForKey(digit);
+    if (letters.empty()) return {};
+    std::string label;
+    label.reserve(letters.size() * 2 + 1);
+    for (char c : letters) label += static_cast<char>(std::toupper(c));
+    label += digit;
+    label += letters;
+    return label;
 }
 
 }  // namespace t9

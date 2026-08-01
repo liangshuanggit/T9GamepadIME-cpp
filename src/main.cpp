@@ -130,6 +130,8 @@ ui::OverlayState MakeOverlayState(const t9::T9Engine& engine,
     s.enabled        = ime.Enabled();
     s.pad_connected  = pad_connected;
     s.pointing       = ime.Pointing();
+    s.letter_mode    = ime.LetterMode();
+    s.letter_text    = ime.LetterText();
     s.digits         = engine.Digits();
     s.pinyin         = engine.PinyinCandidates(32);
     s.candidates     = ime.Candidates();
@@ -240,6 +242,8 @@ void ToggleIme() {
     }
     // 软件桌面控制器：IME 关闭时对所有设备激活（含 ROG Ally）
     if (g_desktop) g_desktop->SetActive(!en);
+    // 关闭界面（IME 关闭）后向前台发送两次 Ctrl+Alt+C
+    if (!en && g_desktop) g_desktop->PressCtrlAltCTwice();
     // 刷新两个控制器的内部状态，防止过期状态导致按键功能不生效
     if (g_desktop) g_desktop->ResetState();
     g_ime->ResetState();
@@ -322,6 +326,44 @@ void AddTrayIcon(HWND hwnd) {
 
 void RemoveTrayIcon() {
     Shell_NotifyIconW(NIM_DELETE, &g_nid);
+}
+
+// ---- 首次运行标记（HKCU 注册表，持久化，避免每次启动都提示） ----
+
+constexpr const wchar_t* kFirstRunKey = L"Software\\T9GamepadIME";
+constexpr const wchar_t* kFirstRunValue = L"FirstRunDone";
+
+bool IsFirstRun() {
+    HKEY hkey;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, kFirstRunKey,
+                      0, KEY_READ, &hkey) != ERROR_SUCCESS)
+        return true;  // 注册表键不存在 -> 首次运行
+    DWORD type = 0, size = 0;
+    LONG result = RegQueryValueExW(hkey, kFirstRunValue, nullptr,
+                                   &type, nullptr, &size);
+    RegCloseKey(hkey);
+    return result != ERROR_SUCCESS;
+}
+
+void MarkFirstRunDone() {
+    HKEY hkey;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, kFirstRunKey, 0, nullptr, 0,
+                        KEY_SET_VALUE, nullptr, &hkey, nullptr) == ERROR_SUCCESS) {
+        DWORD one = 1;
+        RegSetValueExW(hkey, kFirstRunValue, 0, REG_DWORD,
+                       reinterpret_cast<const BYTE*>(&one), sizeof(one));
+        RegCloseKey(hkey);
+    }
+}
+
+// 在托盘图标上弹出一个气泡提示
+void ShowTrayBalloon(const wchar_t* title, const wchar_t* text) {
+    g_nid.uFlags = NIF_INFO;
+    wcscpy_s(g_nid.szInfo, text);
+    wcscpy_s(g_nid.szInfoTitle, title);
+    g_nid.dwInfoFlags = NIIF_INFO;
+    g_nid.uTimeout = 10000;
+    Shell_NotifyIconW(NIM_MODIFY, &g_nid);
 }
 
 }  // namespace
@@ -444,6 +486,13 @@ int main(int argc, char** argv) {
     AddTrayIcon(tray_hwnd);
     g_auto_start = IsAutoStartEnabled();
 
+    // 首次启动：在托盘上弹出气泡提示（只提示一次）
+    if (IsFirstRun()) {
+        MarkFirstRunDone();
+        ShowTrayBalloon(L"T9 手柄输入法",
+            L"要先在Armoury Crate SE 中设置打开控制中心的快捷键为CTRL+ALT+C才能实现功能");
+    }
+
     // 设置托盘 WndProc 需要的全局指针
     g_ime = &ime;
     g_desktop = &desktop;
@@ -515,6 +564,8 @@ int main(int argc, char** argv) {
             }
             // 软件桌面控制器：IME 关闭时对所有设备激活（含 ROG Ally）
             desktop.SetActive(!en);
+            // 关闭界面（IME 关闭）后向前台发送两次 Ctrl+Alt+C
+            if (!en) desktop.PressCtrlAltCTwice();
             // 刷新两个控制器的内部状态，防止过期状态导致按键功能不生效
             desktop.ResetState();
             ime.ResetState();

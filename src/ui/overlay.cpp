@@ -431,16 +431,21 @@ void Overlay::DrawCandidates(HDC hdc, int y) {
     FontSet fonts = CreateFonts();
     COLORREF lc = state_.enabled ? kTextDim : kTextGray;
 
-    // 标题行：无输入时显示"[标点]"，否则显示"[候选]"
+    // 标题行：字母模式显示"[字母 ABC2abc]"，无输入时显示"[标点]"，否则显示"[候选]"
     int total = static_cast<int>(state_.candidates.size());
-    bool is_punct = state_.digits.empty() && total > 0;
-    std::string title = is_punct ? "[标点]" : "[候选]";
+    std::string title;
+    if (state_.letter_mode) {
+        title = "[字母 " + state_.letter_text + "]";
+    } else {
+        bool is_punct = state_.digits.empty() && total > 0;
+        title = is_punct ? "[标点]" : "[候选]";
+    }
     if (total > 0) {
         title += " (" + std::to_string(state_.selected + 1) + "/" +
                  std::to_string(total) + ")";
     }
     TextOutUtf8(hdc, fonts.label, kPadding, y, title,
-                is_punct ? kTextAmber : lc);
+                state_.letter_mode ? kTextBright : lc);
 
     const auto& cands = state_.candidates;
     int start = state_.page_start;

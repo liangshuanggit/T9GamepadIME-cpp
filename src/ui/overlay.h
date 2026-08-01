@@ -27,12 +27,14 @@ struct OverlayState {
     bool enabled = false;
     bool pad_connected = false;  // 手柄是否已连接
     gamepad::Direction pointing = gamepad::Direction::kNone;
+    bool letter_mode = false;       // 是否处于长按字母候选模式
+    std::string letter_text;        // 字母候选模式的紧凑描述，如 "ABC2abc"
     std::string digits;
     std::vector<std::string> pinyin;
     std::vector<std::string> candidates;
     int selected = 0;
     int page_start = 0;
-    int page_size = 5;
+    int page_size = 8;
     std::string last_committed;
     std::string hotkey_desc;
 };

@@ -113,6 +113,27 @@ void TestKeymap() {
     CHECK(t9::PinyinToDigits("a1").empty());   // 含非法字符
 }
 
+// ---------------- 4b) 长按字母候选 ----------------
+void TestLetterCandidates() {
+    std::printf("[Test] 长按字母候选 ABC2abc\n");
+
+    // '2' -> 大写 A B C + 数字 2 + 小写 a b c
+    auto c2 = t9::LetterCandidatesForDigit('2');
+    std::vector<std::string> exp2 = {"A", "B", "C", "2", "a", "b", "c"};
+    CHECK(c2 == exp2);
+    CHECK(t9::LetterLabelForDigit('2') == "ABC2abc");
+
+    // '7' -> 4 字母键
+    auto c7 = t9::LetterCandidatesForDigit('7');
+    std::vector<std::string> exp7 = {"P", "Q", "R", "S", "7", "p", "q", "r", "s"};
+    CHECK(c7 == exp7);
+    CHECK(t9::LetterLabelForDigit('7') == "PQRS7pqrs");
+
+    // 非法键 -> 空
+    CHECK(t9::LetterCandidatesForDigit('1').empty());
+    CHECK(t9::LetterLabelForDigit('1').empty());
+}
+
 // ---------------- 5) T9 引擎拼音展开 ----------------
 void TestT9Engine() {
     std::printf("[Test] T9Engine 拼音展开\n");
@@ -268,7 +289,7 @@ void TestConfig() {
     // 不存在的文件 -> 返回 false，保留默认值
     app::Config def;
     CHECK(!def.LoadFromFile("no_such_file_xyz.ini"));
-    CHECK(def.candidate_page == 5);
+    CHECK(def.candidate_page == 8);
 }
 
 // ---------------- 7) ImeController 状态机 ----------------
@@ -364,6 +385,91 @@ void TestImeController() {
     CHECK(eng.Digits().empty());
 }
 
+// ---------------- 7b) ImeController 长按字母候选模式 ----------------
+void TestImeControllerLetterMode() {
+    std::printf("[Test] ImeController 长按字母候选模式\n");
+    using gamepad::Button;
+    ime::PinyinIme ime;
+    ime.Open("", "");
+    t9::T9Engine eng(&ime);
+    app::Config cfg;  // 默认 long_press_ms=500
+    app::ImeController ctl(&eng, cfg);
+    gamepad::XInputPad pad;
+
+    // 开启
+    pad.InjectForTest({Button::kBack, Button::kStart}, 0.0f, 0.0f);
+    ctl.Update(pad);
+    pad.InjectForTest({}, 0.0f, 0.0f);
+    ctl.Update(pad);
+    CHECK(ctl.Enabled());
+
+    // 短拨右 -> 触发 '6' 拼音候选，未进入字母模式
+    pad.InjectForTest({}, 1.0f, 0.0f);
+    ctl.Update(pad);
+    CHECK(eng.Digits() == "6");
+    CHECK(!ctl.LetterMode());
+
+    // 保持方向不回中，累计长按时长 -> 进入字母模式（'6' -> "MNO6mno"）
+    ctl.DebugSetLongPressElapsed(500);
+    pad.InjectForTest({}, 1.0f, 0.0f);
+    ctl.Update(pad);
+    CHECK(ctl.LetterMode());
+    CHECK(ctl.LetterText() == "MNO6mno");
+    CHECK(eng.Digits().empty());  // 进入字母模式清空拼音数字串
+    std::vector<std::string> exp = {"M", "N", "O", "6", "m", "n", "o"};
+    CHECK(ctl.Candidates() == exp);
+
+    // 摇杆回中，字母模式保持，可用十字键导航
+    pad.InjectForTest({}, 0.0f, 0.0f);
+    ctl.Update(pad);
+    CHECK(ctl.LetterMode());
+    CHECK(ctl.SelectedIndex() == 0);
+    pad.InjectForTest({Button::kDpadRight}, 0.0f, 0.0f);
+    ctl.Update(pad);
+    CHECK(ctl.SelectedIndex() == 1);
+    pad.InjectForTest({}, 0.0f, 0.0f);
+    ctl.Update(pad);
+
+    // A 确认上屏所选字母并退出字母模式
+    pad.InjectForTest({Button::kA}, 0.0f, 0.0f);
+    ctl.Update(pad);
+    CHECK(ctl.LastCommitted() == "N");
+    CHECK(!ctl.LetterMode());
+    pad.InjectForTest({}, 0.0f, 0.0f);
+    ctl.Update(pad);
+
+    // 再次长按进入字母模式后按 B -> 取消，回到标点候选
+    pad.InjectForTest({}, 1.0f, 0.0f);
+    ctl.Update(pad);
+    ctl.DebugSetLongPressElapsed(500);
+    pad.InjectForTest({}, 1.0f, 0.0f);
+    ctl.Update(pad);
+    CHECK(ctl.LetterMode());
+    pad.InjectForTest({Button::kB}, 0.0f, 0.0f);
+    ctl.Update(pad);
+    CHECK(!ctl.LetterMode());
+    CHECK(eng.Digits().empty());
+    CHECK(!ctl.Candidates().empty());  // 回到标点
+    pad.InjectForTest({}, 0.0f, 0.0f);
+    ctl.Update(pad);
+
+    // 字母模式下新拨动 -> 退出字母模式并触发新键
+    pad.InjectForTest({}, 1.0f, 0.0f);
+    ctl.Update(pad);
+    ctl.DebugSetLongPressElapsed(500);
+    pad.InjectForTest({}, 1.0f, 0.0f);
+    ctl.Update(pad);
+    CHECK(ctl.LetterMode());
+    pad.InjectForTest({}, 0.0f, 0.0f);
+    ctl.Update(pad);
+    pad.InjectForTest({}, 0.0f, 1.0f);  // 拨上 -> '2'
+    ctl.Update(pad);
+    CHECK(!ctl.LetterMode());
+    CHECK(eng.Digits() == "2");
+    pad.InjectForTest({}, 0.0f, 0.0f);
+    ctl.Update(pad);
+}
+
 }  // namespace
 
 int main() {
@@ -372,11 +478,13 @@ int main() {
     TestFlickDetector();
     TestKeypad();
     TestKeymap();
+    TestLetterCandidates();
     TestT9Engine();
     TestFuzzyPinyin();
     TestHanziSorting();
     TestConfig();
     TestImeController();
+    TestImeControllerLetterMode();
 
     std::printf("--------------------------------\n");
     std::printf("总计 %d 项断言，失败 %d 项。\n", g_total, g_failed);

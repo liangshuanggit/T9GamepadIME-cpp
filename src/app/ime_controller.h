@@ -9,9 +9,12 @@
 //
 // 开启时：
 //   - 右摇杆 8 方向拨动 -> 触发对应九宫格键位（T9 数字）。
+//   - 右摇杆长按（保持方向不回中超过 long_press_ms）-> 进入该键的字母候选模式，
+//     候选显示为大写字母、数字、小写字母（如 '2' -> "ABC2abc"）。
 //   - 十字键 左/右 切换候选，上/下 翻页。
-//   - A 确认上屏当前候选，B 退格。
+//   - A 确认上屏当前候选，B 退格 / 取消字母模式。
 
+#include <chrono>
 #include <string>
 #include <vector>
 
@@ -45,14 +48,25 @@ public:
     gamepad::Direction Pointing() const { return flick_.Pointing(); }
     const std::string& LastCommitted() const { return last_committed_; }
 
+    // 是否处于字母候选模式（长按触发），以及当前键的紧凑描述，如 "ABC2abc"
+    bool LetterMode() const { return letter_mode_; }
+    std::string LetterText() const;
+
     // 上一帧是否执行了文本注入（供 main 决定是否需要额外处理）
     bool JustInjected() const { return just_injected_; }
     void ClearInjectedFlag() { just_injected_ = false; }
+
+#ifdef T9IME_TESTING
+    // 仅测试：直接设定长按累计时长，便于触发字母候选模式
+    void DebugSetLongPressElapsed(int ms) { long_press_elapsed_ms_ = ms; }
+#endif
 
 private:
     void RefreshCandidates();
     void ClampSelection();
     bool ToggleComboEdge(const gamepad::XInputPad& pad);
+    void EnterLetterMode(gamepad::Direction dir);
+    void ExitLetterMode();
 
     t9::T9Engine* engine_;  // 不持有
     Config cfg_;
@@ -60,6 +74,16 @@ private:
     bool prev_combo_ = false;
     gamepad::StickFlickDetector flick_;
     gamepad::Direction prev_pointing_ = gamepad::Direction::kNone;
+
+    // 长按检测：摇杆锁定方向后累计按住时长
+    gamepad::Direction long_press_dir_ = gamepad::Direction::kNone;
+    int long_press_elapsed_ms_ = 0;
+    bool long_press_consumed_ = false;
+    std::chrono::steady_clock::time_point last_update_;
+
+    // 字母候选模式：长按某键后，候选为该键的字母/数字
+    bool letter_mode_ = false;
+    char letter_digit_ = 0;
 
     std::vector<std::string> candidates_;
     int selected_ = 0;

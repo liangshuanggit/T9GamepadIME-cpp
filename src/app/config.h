@@ -15,7 +15,8 @@ struct Config {
 
     float stick_activate = 0.6f;   // 触发拨动的幅度阈值 (0~1)
     float stick_release = 0.35f;   // 回中阈值，低于此才能再次触发 (0~1)
-    int candidate_page = 5;        // 每页候选数
+    int long_press_ms = 500;       // 右摇杆长按触发字母候选的持续时间 (毫秒)
+    int candidate_page = 8;        // 每页候选数
     bool start_enabled = false;    // 启动时是否已开启输入法功能
     float overlay_opacity = 0.7f;  // 九宫格覆盖层不透明度 (0~1)
 
