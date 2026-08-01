@@ -13,6 +13,12 @@
 //     候选显示为大写字母、数字、小写字母（如 '2' -> "ABC2abc"）。
 //   - 十字键 左/右 切换候选，上/下 翻页。
 //   - A 确认上屏当前候选，B 退格 / 取消字母模式。
+//   - LB 作为"编辑修饰键"：
+//       LB + A → 全选 (Ctrl+A)
+//       LB + X → 剪切 (Ctrl+X)
+//       LB + Y → 复制 (Ctrl+C)
+//       LB + B → 粘贴 (Ctrl+V)
+//     仅在 IME 开启时生效；按住 LB 期间不处理 A/B 的常规功能（不误上屏/退格）。
 
 #include <chrono>
 #include <string>
@@ -56,6 +62,10 @@ public:
     bool JustInjected() const { return just_injected_; }
     void ClearInjectedFlag() { just_injected_ = false; }
 
+    // 最近触发的编辑快捷键（LB+面键）：'A'/'B'/'X'/'Y'，0 表示无。
+    // 仅在触发后的短暂窗口期内返回非 0，供界面高亮显示。
+    char EditHighlight() const;
+
 #ifdef T9IME_TESTING
     // 仅测试：直接设定长按累计时长，便于触发字母候选模式
     void DebugSetLongPressElapsed(int ms) { long_press_elapsed_ms_ = ms; }
@@ -67,6 +77,11 @@ private:
     bool ToggleComboEdge(const gamepad::XInputPad& pad);
     void EnterLetterMode(gamepad::Direction dir);
     void ExitLetterMode();
+
+    // LB+面键 组合触发（注入 Ctrl+字母 + 记录高亮）
+    bool TriggerEditShortcut(gamepad::Button btn);
+    // 面键常规功能（无 LB 时）：A 上屏候选 / B 退格
+    bool HandleFaceNormal(gamepad::Button btn);
 
     t9::T9Engine* engine_;  // 不持有
     Config cfg_;
@@ -85,12 +100,24 @@ private:
     bool letter_mode_ = false;
     char letter_digit_ = 0;
 
+    // 编辑快捷键（LB+面键）触发反馈：记录触发时刻，供界面短暂高亮
+    char edit_highlight_ = 0;
+    std::chrono::steady_clock::time_point edit_highlight_at_;
+
+    // 面键按下沿挂起：面键先于 LB 被检测到按下时（同帧按下或手柄扫描
+    // 导致 LB 晚一帧上报），挂起该按下沿一帧，下一帧 LB 到位时回溯为组合，
+    // 避免面键常规功能（上屏/退格）抢先触发。
+    bool pending_face_ = false;
+    gamepad::Button pending_btn_ = gamepad::Button::kA;
+
     std::vector<std::string> candidates_;
     int selected_ = 0;
     std::string last_committed_;
     bool just_injected_ = false;
 
     static constexpr size_t kMaxCandidates = 100;
+    // 编辑快捷键高亮的显示时长（毫秒）
+    static constexpr int kEditHighlightMs = 800;
 };
 
 }  // namespace app

@@ -1,6 +1,8 @@
 # ---- 构建产物 ----
 /build/
 /build_test/
+/build_preview/   # 临时 UI 预览工具（ui_preview.bmp 可查看界面效果）
+/installer/       # Inno Setup 安装包输出（T9GamepadIME-Setup.exe）
 /out/
 *.obj
 *.o
@@ -37,6 +39,8 @@ CTestTestfile.cmake
 data/user_dict.dat
 # 日志文件
 *.log
+# 词典构建中间产物（由 new_words.txt 与原始词表合并生成，见 data/README.md）
+data/rawdict_merged_utf16.txt
 
 # ---- TRAE 工具生成 ----
 .trae-html-share-packages/

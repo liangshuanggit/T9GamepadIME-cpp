@@ -428,6 +428,24 @@ class MatrixSearch {
   // For a Pinyin "women", the returned value is 2, spl_start is [0, 2, 5] .
   size_t get_spl_start(const uint16 *&spl_start);
 
+  // Get the number of lemmas (dictionary entries) which compose the full
+  // sentence candidate of the current search result. Call after search().
+  // For a real word like "nihao", the sentence "ni3 hao3" is a single lemma
+  // (你好), so the returned value is 1; for a meaningless concatenation like
+  // "migaoooa", the sentence is composed of 5 single-character lemmas
+  // (米 噶 哦 哦 啊), so the returned value is 5.
+  size_t get_sentence_lemma_num();
+
+  // Get the composition statistics of the full sentence candidate of the
+  // current search result: the total number of lemmas and the number of
+  // multi-character (>= 2 Chinese characters) lemmas. Call after search().
+  // Each Chinese character maps to exactly one syllable, so a lemma spanning
+  // >= 2 spelling ids is a multi-character word. This is used to distinguish
+  // real phrases (mostly multi-char lemmas, e.g. 你干嘛 = 你 + 干嘛) from
+  // meaningless single-character concatenations (e.g. 米噶哦哦啊 =
+  // 米 + 噶 + 哦哦 + 啊, where single-char lemmas dominate).
+  void get_sentence_lemma_stats(size_t *total_lemmas, size_t *multi_char_lemmas);
+
   // Get one candiate string. If full sentence candidate is available, it will
   // be the first one.
   char16* get_candidate(size_t cand_id, char16 *cand_str, size_t max_len);

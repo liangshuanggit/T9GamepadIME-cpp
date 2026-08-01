@@ -15,6 +15,63 @@ namespace t9 {
 // 仅在音节级别应用（完整音节匹配，非子串替换）。
 namespace {
 
+// 标准拼音音节表：提取自词典原始词表（rawdict_utf16_65105_freq.txt）
+// 的全部音节（含零声母），共 416 个。构建索引时每个音节再经
+// libgooglepinyin 的 ValidateAndDecode 验证，丢弃引擎不接受者。
+// 与旧实现（逐字母 DFS + 引擎验证）相比，音节级配对将搜索空间从
+// 指数级的字母组合缩小为“音节铺贴”，且无需对每个叶子做 im_search。
+constexpr const char* kPinyinSyllables[] = {
+    "a", "ai", "an", "ang", "ao", "ba", "bai", "ban", "bang", "bao",
+    "bei", "ben", "beng", "bi", "bian", "biao", "bie", "bin", "bing", "bo",
+    "bu", "ca", "cai", "can", "cang", "cao", "ce", "cen", "ceng", "cha",
+    "chai", "chan", "chang", "chao", "che", "chen", "cheng", "chi", "chong", "chou",
+    "chu", "chua", "chuai", "chuan", "chuang", "chui", "chun", "chuo", "ci", "cong",
+    "cou", "cu", "cuan", "cui", "cun", "cuo", "da", "dai", "dan", "dang",
+    "dao", "de", "dei", "den", "deng", "di", "dia", "dian", "diao", "die",
+    "ding", "diu", "dong", "dou", "du", "duan", "dui", "dun", "duo", "e",
+    "ei", "en", "eng", "er", "fa", "fan", "fang", "fei", "fen", "feng",
+    "fiao", "fo", "fou", "fu", "ga", "gai", "gan", "gang", "gao", "ge",
+    "gei", "gen", "geng", "gong", "gou", "gu", "gua", "guai", "guan", "guang",
+    "gui", "gun", "guo", "ha", "hai", "han", "hang", "hao", "he", "hei",
+    "hen", "heng", "hm", "hng", "hong", "hou", "hu", "hua", "huai", "huan",
+    "huang", "hui", "hun", "huo", "ji", "jia", "jian", "jiang", "jiao", "jie",
+    "jin", "jing", "jiong", "jiu", "ju", "juan", "jue", "jun", "ka", "kai",
+    "kan", "kang", "kao", "ke", "kei", "ken", "keng", "kong", "kou", "ku",
+    "kua", "kuai", "kuan", "kuang", "kui", "kun", "kuo", "la", "lai", "lan",
+    "lang", "lao", "le", "lei", "leng", "li", "lia", "lian", "liang", "liao",
+    "lie", "lin", "ling", "liu", "lo", "long", "lou", "lu", "luan", "lue",
+    "lun", "luo", "lv", "m", "ma", "mai", "man", "mang", "mao", "me",
+    "mei", "men", "meng", "mi", "mian", "miao", "mie", "min", "ming", "miu",
+    "mo", "mou", "mu", "n", "na", "nai", "nan", "nang", "nao", "ne",
+    "nei", "nen", "neng", "ng", "ni", "nian", "niang", "niao", "nie", "nin",
+    "ning", "niu", "nong", "nou", "nu", "nuan", "nue", "nuo", "nv", "o",
+    "ou", "pa", "pai", "pan", "pang", "pao", "pei", "pen", "peng", "pi",
+    "pian", "piao", "pie", "pin", "ping", "po", "pou", "pu", "qi", "qia",
+    "qian", "qiang", "qiao", "qie", "qin", "qing", "qiong", "qiu", "qu", "quan",
+    "que", "qun", "ran", "rang", "rao", "re", "ren", "reng", "ri", "rong",
+    "rou", "ru", "ruan", "rui", "run", "ruo", "sa", "sai", "san", "sang",
+    "sao", "se", "sen", "seng", "sha", "shai", "shan", "shang", "shao", "she",
+    "shei", "shen", "sheng", "shi", "shou", "shu", "shua", "shuai", "shuan", "shuang",
+    "shui", "shun", "shuo", "si", "song", "sou", "su", "suan", "sui", "sun",
+    "suo", "ta", "tai", "tan", "tang", "tao", "te", "tei", "teng", "ti",
+    "tian", "tiao", "tie", "ting", "tong", "tou", "tu", "tuan", "tui", "tun",
+    "tuo", "wa", "wai", "wan", "wang", "wei", "wen", "weng", "wo", "wu",
+    "xi", "xia", "xian", "xiang", "xiao", "xie", "xin", "xing", "xiong", "xiu",
+    "xu", "xuan", "xue", "xun", "ya", "yan", "yang", "yao", "ye", "yi",
+    "yin", "ying", "yo", "yong", "you", "yu", "yuan", "yue", "yun", "za",
+    "zai", "zan", "zang", "zao", "ze", "zei", "zen", "zeng", "zha", "zhai",
+    "zhan", "zhang", "zhao", "zhe", "zhei", "zhen", "zheng", "zhi", "zhong", "zhou",
+    "zhu", "zhua", "zhuai", "zhuan", "zhuang", "zhui", "zhun", "zhuo", "zi", "zong",
+    "zou", "zu", "zuan", "zui", "zun", "zuo",
+};
+constexpr size_t kPinyinSyllableCount =
+    sizeof(kPinyinSyllables) / sizeof(kPinyinSyllables[0]);
+
+// PinyinCandidates 中为每个通过校验的拼音一次性收集的候选上限。
+// HanziCandidates 的最大请求量（kMaxCandidates=100）不应超过此值，
+// 否则缓存不足时需要回退到再次 Search。
+constexpr size_t kPinyinCandidateCollect = 128;
+
 struct FuzzyPair {
     const char* from;
     const char* to;
@@ -70,6 +127,7 @@ T9Engine::T9Engine(ime::PinyinIme* ime) : ime_(ime) {}
 void T9Engine::InvalidateCache() {
     cached_digits_.clear();
     cached_pinyin_.clear();
+    cached_pinyin_cands_.clear();
     cached_hanzi_digits_.clear();
     cached_hanzi_.clear();
 }
@@ -93,37 +151,68 @@ void T9Engine::Clear() {
     InvalidateCache();
 }
 
-void T9Engine::Expand(size_t pos, std::string& prefix,
-                      std::vector<std::string>& out, size_t max_results) const {
+void T9Engine::EnsureSyllableIndex() const {
+    if (syllable_index_built_) return;
+
+    syllable_index_.clear();
+    max_syllable_len_ = 0;
+
+    for (size_t i = 0; i < kPinyinSyllableCount; ++i) {
+        const char* syl = kPinyinSyllables[i];
+        std::string digits = PinyinToDigits(syl);
+        if (digits.empty()) continue;
+
+        // 用引擎验证并获取规范拼音；不接受的音节直接丢弃，
+        // 保证索引与引擎的合法性判定完全一致。
+        std::string decoded;
+        if (!ime_->ValidateAndDecode(syl, decoded)) continue;
+        std::string canon = decoded.empty() ? syl : decoded;
+
+        // 注意：同一数字串可对应多个音节（如 "64" -> mi/ni）。
+        syllable_index_[digits].push_back(canon);
+        if (digits.size() > max_syllable_len_) max_syllable_len_ = digits.size();
+    }
+
+    syllable_index_built_ = true;
+}
+
+void T9Engine::ExpandSyllables(size_t pos, std::string& built,
+                               std::vector<std::string>& out,
+                               size_t max_results) const {
     if (out.size() >= max_results) return;
 
-    // 到达数字串末尾：使用 libgooglepinyin 公共 API 做最终验证
+    // 数字串已全部铺满：built 即为带 ' 分隔符的拼音组合。
+    // 音节在索引构建时已逐个经引擎验证，直接使用，不再对整串重复解码
+    // （否则会把已含分隔符的串再解一次，产生 "mi''gan''ma" 这类双重分隔符）。
     if (pos == digits_.size()) {
-        std::string decoded;
-        if (ime_->ValidateAndDecode(prefix, decoded)) {
-            // 引擎确认所有字符被分解为完整音节
-            // 使用引擎解码的规范拼音（可能与输入略有不同）
-            out.push_back(decoded.empty() ? prefix : decoded);
-        }
+        out.push_back(built);
         return;
     }
 
-    // 遍历当前数字对应的所有可能字母
-    const std::string& letters = LettersForKey(digits_[pos]);
-    for (char c : letters) {
-        prefix.push_back(c);
+    // 尝试以 1..max_syllable_len 位的数字串匹配一个完整音节
+    size_t max_len = max_syllable_len_;
+    if (pos + max_len > digits_.size()) max_len = digits_.size() - pos;
 
-        // DFS 前缀剪枝：调用 libgooglepinyin 的 SpellingParser 快速判断
-        //   1=合法前缀（含部分音节，可继续展开）
-        //   2=完整拼音（也可继续展开，后续字母可能开启新音节）
-        int valid = ime_->ValidateSplstr(prefix);
-        if (valid > 0) {
-            Expand(pos + 1, prefix, out, max_results);
+    for (size_t len = 1; len <= max_len; ++len) {
+        auto it = syllable_index_.find(digits_.substr(pos, len));
+        if (it == syllable_index_.end()) continue;
+
+        for (const std::string& syl : it->second) {
+            bool was_empty = built.empty();
+            if (!was_empty) built.push_back('\'');
+            built += syl;
+
+            ExpandSyllables(pos + len, built, out, max_results);
+
+            // 还原 built
+            if (was_empty) {
+                built.clear();
+            } else {
+                built.resize(built.size() - syl.size() - 1);
+            }
+
+            if (out.size() >= max_results) return;
         }
-
-        prefix.pop_back();
-
-        if (out.size() >= max_results) return;
     }
 }
 
@@ -225,13 +314,15 @@ std::vector<std::string> T9Engine::PinyinCandidates(size_t max_results) const {
     // 缓存未命中：重新计算
     std::vector<std::string> out;
 
-    // 两阶段验证：
-    // 1. DFS 前缀剪枝用 ValidateSplstr（SpellingParser/SpellingTrie，快速）
-    // 2. 叶子最终验证用 ValidateAndDecode（im_search 公共 API，准确）
-    // 展开结果均为 libgooglepinyin 引擎确认的合法拼音，带音节分隔符。
+    // 懒构建音节索引（首用才验证/建立，缓存于本实例）
+    EnsureSyllableIndex();
+
+    // 音节级 DFS：将数字串铺满为完整音节序列。
+    // 相比逐字母展开（3^n 组合），搜索空间缩减为音节铺贴数量，
+    // 且仅在每个完整组合（而非每个字母叶子）做一次 im_search 验证。
     size_t expand_limit = 256;
-    std::string prefix;
-    Expand(0, prefix, out, expand_limit);
+    std::string built;
+    ExpandSyllables(0, built, out, expand_limit);
 
     // 模糊音变体：对每个已验证拼音生成模糊音变体
     if (fuzzy_enabled_) {
@@ -244,6 +335,27 @@ std::vector<std::string> T9Engine::PinyinCandidates(size_t max_results) const {
     // 去重
     std::sort(out.begin(), out.end());
     out.erase(std::unique(out.begin(), out.end()), out.end());
+
+    // 严格管控：只保留能在词典中组成词语/成语/话语的拼音组合。
+    // 判定标准是 libgooglepinyin（成熟开源拼音引擎）整句候选的"词条组成结构"：
+    // 真实短语由多字词条组成（词条数 < 音节数），如 ni'hao -> 你好（1 词条/2 音节）；
+    // 而任意合法音节都能被引擎拼成"逐音节单字"（如 mi'ga'o'o'a -> 米噶哦哦啊），
+    // 词条数 == 音节数，属于无意义拼接，一律丢弃。
+    // 保证上屏候选与拼音提示都是真实可用的词语/成语/句子。
+    // 这里用 SearchAndCheck 一次性完成"短语判定 + 候选收集"，
+    // 候选缓存到 cached_pinyin_cands_ 供 HanziCandidates 复用，避免二次搜索。
+    {
+        std::vector<std::string> kept;
+        kept.reserve(out.size());
+        cached_pinyin_cands_.clear();
+        for (const std::string& py : out) {
+            ime::PinyinIme::SearchResult r = ime_->SearchAndCheck(py, kPinyinCandidateCollect);
+            if (!r.is_phrase) continue;
+            cached_pinyin_cands_[py] = std::move(r.candidates);
+            kept.push_back(py);
+        }
+        out.swap(kept);
+    }
 
     // 按音节数排序（少音节优先），同音节数按字典序。
     // 音节数少的组合更可能对应常用词（如 "ni'hao" 优先于 "mi'ga'mo'a"）。
@@ -279,13 +391,24 @@ std::vector<std::string> T9Engine::HanziCandidates(size_t max_results) const {
     auto pys = PinyinCandidates(48);
     if (pys.empty()) return {};
 
-    // 为每个拼音展开预先获取候选列表
+    // 为每个拼音展开预先获取候选列表。
+    // 优先复用 PinyinCandidates 阶段缓存的候选（SearchAndCheck 已收集），
+    // 仅在缓存缺失（如请求量超过缓存上限）时回退到再次 Search。
     // 注意：pys 中存储的是带 ' 分隔符的拼音（如 "ni'hao'ma"），
     // im_search 将非 a-z 字符视为分隔符，可直接处理，无需去除。
     std::vector<std::vector<std::string>> all_cands;
     all_cands.reserve(pys.size());
     for (const std::string& py : pys) {
-        all_cands.push_back(ime_->Search(py, max_results));
+        auto it = cached_pinyin_cands_.find(py);
+        if (it != cached_pinyin_cands_.end() && !it->second.empty()) {
+            const auto& cached = it->second;
+            all_cands.push_back(
+                max_results < cached.size()
+                    ? std::vector<std::string>(cached.begin(), cached.begin() + max_results)
+                    : cached);
+        } else {
+            all_cands.push_back(ime_->Search(py, max_results));
+        }
     }
 
     // ---- 词频排序 + 常用字词加权 ----

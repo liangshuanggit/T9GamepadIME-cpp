@@ -220,21 +220,55 @@
       background: var(--bg2);
       margin: 1rem 0;
     }
-    .keypad-row { display: flex; gap: 8px; margin-bottom: 8px; }
-    .keypad-row:last-child { margin-bottom: 0; }
-    .keypad-cell {
-      width: 90px; height: 60px;
-      border: 1px solid var(--rule);
-      border-radius: 6px;
-      display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
-      background: var(--bg3);
-      font-size: 0.8rem;
+    .keypad-visual .note {
+      text-align: center;
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-top: 8px;
     }
-    .keypad-cell .digit { font-size: 1.3rem; font-weight: 700; color: var(--ink); }
-    .keypad-cell .letters { font-size: 0.72rem; color: var(--muted); }
-    .keypad-cell.center { background: transparent; border-style: dashed; }
-    .keypad-cell.center .digit { color: var(--muted); font-size: 1rem; }
+    .keypad-fan {
+      position: relative;
+      width: 280px;
+      height: 280px;
+      margin: 0 auto;
+    }
+    .keypad-fan .blade {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 72px;
+      height: 46px;
+      margin: -23px 0 0 -36px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg3);
+      border: 1px solid var(--rule);
+      border-radius: 50% 50% 50% 50% / 38% 38% 62% 62%;
+      font-size: 0.78rem;
+      text-align: center;
+      line-height: 1.25;
+    }
+    .keypad-fan .blade .digit { font-size: 1.2rem; font-weight: 700; color: var(--ink); }
+    .keypad-fan .blade .letters { font-size: 0.68rem; color: var(--muted); }
+    .keypad-fan .hub {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 58px;
+      height: 58px;
+      margin: -29px 0 0 -29px;
+      border: 1px dashed var(--rule);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 0.95rem;
+      background: var(--bg2);
+      z-index: 2;
+    }
 
     /* ---- Mermaid ---- */
     .diagram { margin: 1.5rem 0; text-align: center; }
@@ -299,6 +333,7 @@
         <li><strong>系统托盘</strong>：静默后台运行，支持开机启动</li>
         <li><strong>ROG Ally 硬件支持</strong>：通过 HID Feature Report 实现硬件级手柄/鼠标模式切换</li>
         <li><strong>桌面操控模式</strong>：IME 关闭时，手柄模拟鼠标和键盘操作 Windows 桌面</li>
+        <li><strong>编辑快捷键</strong>：LB + 面键 → 全选 / 剪切 / 复制 / 粘贴，触发时界面高亮（仅 IME 开启时）</li>
         <li><strong>文本注入</strong>：使用 SendInput + KEYEVENTF_UNICODE 将候选词直接写入前台窗口光标位置</li>
       </ul>
     </section>
@@ -415,13 +450,14 @@ stick_activate = 0.8
 stick_release = 0.15
 
 <span class="code-comment"># 候选词每页数量</span>
-candidate_page = 5
+candidate_page = 8
 
 <span class="code-comment"># 启动时是否已开启输入法功能</span>
 start_enabled = false
 
-<span class="code-comment"># 九宫格覆盖层不透明度（0.0~1.0）</span>
-overlay_opacity = 0.0</code></pre>
+<span class="code-comment"># 覆盖层不透明度（0.0~1.0）。注意：这是整个窗口（含内容）的透明度，</span>
+<span class="code-comment"># 0.0 会导致整个界面完全不可见。建议 0.7~1.0。</span>
+overlay_opacity = 1.0</code></pre>
 
       <h3>配置项详解</h3>
       <div class="table-wrap">
@@ -431,25 +467,31 @@ overlay_opacity = 0.0</code></pre>
             <tr>
               <td><code>toggle_hotkey</code></td>
               <td>字符串</td>
-              <td><code>Back+Start</code></td>
+              <td><code>Start</code></td>
               <td>IME 开关快捷键，支持组合键（用 <code>+</code> 连接）。如 <code>Start</code> 为单键切换，<code>LB+RB</code> 为双键同时按</td>
             </tr>
             <tr>
               <td><code>stick_activate</code></td>
               <td>浮点数</td>
-              <td><code>0.6</code></td>
-              <td>摇杆触发阈值（0~1）。值越高需越用力推动摇杆。推荐 0.8 以防误触</td>
+              <td><code>0.8</code></td>
+              <td>摇杆触发阈值（0~1）。值越高需越用力推动摇杆，防止误触</td>
             </tr>
             <tr>
               <td><code>stick_release</code></td>
               <td>浮点数</td>
-              <td><code>0.35</code></td>
-              <td>摇杆回中阈值。摇杆须回到此幅度以下才能再次触发。推荐 0.15 确保完全回中</td>
+              <td><code>0.15</code></td>
+              <td>摇杆回中阈值。摇杆须回到此幅度以下才能再次触发</td>
+            </tr>
+            <tr>
+              <td><code>long_press_ms</code></td>
+              <td>整数</td>
+              <td><code>500</code></td>
+              <td>长按触发字母候选的持续时间（毫秒）</td>
             </tr>
             <tr>
               <td><code>candidate_page</code></td>
               <td>整数</td>
-              <td><code>5</code></td>
+              <td><code>8</code></td>
               <td>候选区每页显示的候选词数量</td>
             </tr>
             <tr>
@@ -461,8 +503,8 @@ overlay_opacity = 0.0</code></pre>
             <tr>
               <td><code>overlay_opacity</code></td>
               <td>浮点数</td>
-              <td><code>0.7</code></td>
-              <td>覆盖层不透明度（0.0~1.0）。当前版本窗口为完全不透明，此项保留兼容</td>
+              <td><code>1.0</code></td>
+              <td>覆盖层不透明度（0.0~1.0）。作用于整个窗口（含内容）；0.0 会完全不可见，建议 0.7~1.0</td>
             </tr>
           </tbody>
         </table>
@@ -486,7 +528,7 @@ overlay_opacity = 0.0</code></pre>
       <div class="grid-2">
         <div class="card">
           <div class="card-title">启动程序</div>
-          <p>双击 <code>t9ime.exe</code> 或通过开机自启运行。程序在系统托盘静默运行，手柄保持桌面操控模式。</p>
+          <p>双击 <code>t9ime.exe</code> 或通过开机自启运行。程序在系统托盘静默运行，保持设备当前模式（首次切换 IME 时进入对应的手柄/桌面模式）。</p>
         </div>
         <div class="card">
           <div class="card-title">退出程序</div>
@@ -505,36 +547,35 @@ overlay_opacity = 0.0</code></pre>
 
       <div class="callout">
         <span class="label blue">IME 关闭</span>
-        <p>隐藏覆盖层界面，手柄进入<strong>桌面操控模式</strong>。ROG Ally 切换到硬件鼠标模式（右触摸板变为鼠标），XInput 停止工作；非 ROG Ally 设备通过软件模拟鼠标和键盘（左摇杆移动鼠标，A/B 键模拟点击）。</p>
+        <p>隐藏覆盖层界面，手柄进入<strong>桌面操控模式</strong>。ROG Ally 切换到硬件桌面（鼠标）模式，由 Ally 固件接管鼠标/按键，XInput 停止工作；非 ROG Ally 设备通过软件模拟鼠标和键盘（左摇杆移动鼠标，A/B 键模拟点击）。</p>
       </div>
 
       <h3>备用切换热键</h3>
-      <p>对于 ROG Ally 在硬件鼠标模式下 XInput 无法检测 Start 键的情况，提供 <code>Ctrl+Alt+E</code> 键盘热键作为备用切换方式。</p>
+      <p>对于 ROG Ally 在硬件桌面模式下 XInput 无法检测 Start 键的情况，提供 <code>Ctrl+Alt+E</code> 键盘热键作为备用切换方式。</p>
     </section>
 
     <!-- 6. 九宫格输入操作 -->
     <section id="keypad">
       <h2>九宫格输入操作</h2>
 
-      <h3>九宫格布局</h3>
-      <p>5 键移到左上位置（原 1 键位置），中心留空作为右摇杆静止位：</p>
+      <h3>扇形键区布局</h3>
+      <p>键位以<strong>扇形（径向）</strong>方式围绕中心静止位排布：右摇杆回中于中心圆，
+      拨向 8 个方向即触发对应的弧形扇叶键。方向与数字键的映射与经典九宫格一致，
+      仅视觉排布由 3×3 矩形改为环形扇形：</p>
 
       <div class="keypad-visual">
-        <div class="keypad-row">
-          <div class="keypad-cell"><span class="digit">5</span><span class="letters">jkl</span></div>
-          <div class="keypad-cell"><span class="digit">2</span><span class="letters">abc</span></div>
-          <div class="keypad-cell"><span class="digit">3</span><span class="letters">def</span></div>
+        <div class="keypad-fan">
+          <div class="blade" style="transform: rotate(-45deg) translate(0, -95px) rotate(45deg);"><span class="digit">5</span><span class="letters">jkl</span></div>
+          <div class="blade" style="transform: rotate(0deg) translate(0, -95px) rotate(0deg);"><span class="digit">2</span><span class="letters">abc</span></div>
+          <div class="blade" style="transform: rotate(45deg) translate(0, -95px) rotate(-45deg);"><span class="digit">3</span><span class="letters">def</span></div>
+          <div class="blade" style="transform: rotate(-90deg) translate(0, -95px) rotate(90deg);"><span class="digit">4</span><span class="letters">ghi</span></div>
+          <div class="hub">·</div>
+          <div class="blade" style="transform: rotate(90deg) translate(0, -95px) rotate(-90deg);"><span class="digit">6</span><span class="letters">mno</span></div>
+          <div class="blade" style="transform: rotate(-135deg) translate(0, -95px) rotate(135deg);"><span class="digit">7</span><span class="letters">pqrs</span></div>
+          <div class="blade" style="transform: rotate(180deg) translate(0, -95px) rotate(-180deg);"><span class="digit">8</span><span class="letters">tuv</span></div>
+          <div class="blade" style="transform: rotate(135deg) translate(0, -95px) rotate(-135deg);"><span class="digit">9</span><span class="letters">wxyz</span></div>
         </div>
-        <div class="keypad-row">
-          <div class="keypad-cell"><span class="digit">4</span><span class="letters">ghi</span></div>
-          <div class="keypad-cell center"><span class="digit">·</span></div>
-          <div class="keypad-cell"><span class="digit">6</span><span class="letters">mno</span></div>
-        </div>
-        <div class="keypad-row">
-          <div class="keypad-cell"><span class="digit">7</span><span class="letters">pqrs</span></div>
-          <div class="keypad-cell"><span class="digit">8</span><span class="letters">tuv</span></div>
-          <div class="keypad-cell"><span class="digit">9</span><span class="letters">wxyz</span></div>
-        </div>
+        <div class="note">中心 = 右摇杆静止位 · 拨向 8 方向触发对应扇叶键</div>
       </div>
 
       <h3>摇杆方向与键位映射</h3>
@@ -592,10 +633,19 @@ overlay_opacity = 0.0</code></pre>
             <tr><td>十字键 ↑ / ↓</td><td>翻页</td><td>候选词上一页 / 下一页</td></tr>
             <tr><td>A</td><td>确认上屏</td><td>将当前选中候选词注入到前台窗口光标位置</td></tr>
             <tr><td>B</td><td>退格</td><td>有数字输入时删除最后一位；无输入时发送退格键删除光标内容</td></tr>
+            <tr><td>LB + A</td><td>全选</td><td>Ctrl+A</td></tr>
+            <tr><td>LB + X</td><td>剪切</td><td>Ctrl+X</td></tr>
+            <tr><td>LB + Y</td><td>复制</td><td>Ctrl+C</td></tr>
+            <tr><td>LB + B</td><td>粘贴</td><td>Ctrl+V</td></tr>
             <tr><td>Start</td><td>关闭 IME</td><td>隐藏界面，切换到桌面操控模式</td></tr>
           </tbody>
         </table>
       </div>
+
+      <p><strong>编辑快捷键（仅 IME 开启时）：</strong>按住 <code>LB</code> 再按面键，
+      可触发文本全选 / 剪切 / 复制 / 粘贴（见下方 IME 开启表格）。按住 LB 期间
+      A/B 的常规功能（上屏候选 / 退格）被暂时抑制，松开后恢复。
+      IME 关闭（桌面操控模式）时不响应编辑快捷键。</p>
 
       <h3>IME 关闭 — 桌面操控模式</h3>
       <div class="table-wrap">
@@ -609,7 +659,7 @@ overlay_opacity = 0.0</code></pre>
             <tr><td>X</td><td>退格键</td><td>Backspace</td></tr>
             <tr><td>Y</td><td>回车键</td><td>Enter</td></tr>
             <tr><td>十字键 ↑↓←→</td><td>方向键</td><td>上/下/左/右箭头</td></tr>
-            <tr><td>LB</td><td>PageUp</td><td>上一页</td></tr>
+            <tr><td>LB</td><td>PageUp</td><td>上一页（单独按 LB 并松开）</td></tr>
             <tr><td>RB</td><td>PageDown</td><td>下一页</td></tr>
             <tr><td>Back</td><td>Windows 键</td><td>Ctrl+Esc 等效，打开开始菜单</td></tr>
             <tr><td>LT（左扳机）</td><td>滚轮向下</td><td>持续按下持续滚动</td></tr>
@@ -621,7 +671,7 @@ overlay_opacity = 0.0</code></pre>
 
       <div class="callout amber">
         <span class="label yellow">重要说明</span>
-        <p>ROG Ally 在桌面操控模式下使用<strong>硬件鼠标模式</strong>（右触摸板变为鼠标），XInput 停止工作，Start 键不可用。需使用 <code>Ctrl+Alt+E</code> 热键或托盘左键点击切回 T9 输入模式。非 ROG Ally 设备使用软件 DesktopController 模拟鼠标和键盘，Start 键始终可用。</p>
+        <p>ROG Ally 在桌面操控模式下切换到<strong>硬件桌面（鼠标）模式</strong>，由 Ally 固件接管鼠标/按键，XInput 停止工作，Start 键不可用。需使用 <code>Ctrl+Alt+E</code> 热键或托盘左键点击切回 T9 输入模式。非 ROG Ally 设备使用软件 DesktopController 模拟鼠标和键盘，Start 键始终可用。</p>
       </div>
     </section>
 
@@ -660,15 +710,15 @@ mode 值:    0x01 = 游戏手柄模式 (XInput)
       <h3>模式切换策略</h3>
       <p>当前版本采用硬件级模式切换策略，在 IME 开关时同步切换 ROG Ally 硬件模式：</p>
       <ul>
-        <li><strong>启动时</strong>：检测到 ROG Ally 后，发送 <code>SetGamepadMode</code> 确保设备处于游戏手柄模式（XInput 可用，可检测 Start 键）</li>
+        <li><strong>启动时</strong>：若配置 <code>start_enabled=true</code>（启动即开启 IME），发送 <code>SetGamepadMode</code> 确保游戏手柄模式；否则保持设备当前状态，首次切换 IME 时生效</li>
         <li><strong>IME 开启时</strong>：发送 <code>SetGamepadMode</code> 切换到游戏手柄模式（XInput 正常工作，T9 输入可用）</li>
-        <li><strong>IME 关闭时</strong>：发送 <code>SetMouseMode</code> 切换到硬件鼠标模式（右触摸板变为鼠标，更自然的桌面操控体验）</li>
+        <li><strong>IME 关闭时</strong>：发送 <code>SetMouseMode</code> 切换到硬件桌面（鼠标）模式，由 Ally 固件接管鼠标/按键</li>
         <li><strong>模式切换后状态刷新</strong>：每次切换时重置 DesktopController 和 ImeController 的内部状态（按键边沿、摇杆锁定等），确保按键功能立即生效</li>
       </ul>
 
       <div class="callout">
         <span class="label amber">注意</span>
-        <p>硬件鼠标模式下 XInput 停止工作，手柄 Start 键不可用。从鼠标模式切回需使用 <code>Ctrl+Alt+E</code> 热键或托盘左键点击。非 ROG Ally 设备在 IME 关闭时自动回退到软件 DesktopController。</p>
+        <p>硬件桌面模式下 XInput 停止工作，手柄 Start 键不可用。从桌面模式切回需使用 <code>Ctrl+Alt+E</code> 热键或托盘左键点击。非 ROG Ally 设备在 IME 关闭时自动回退到软件 DesktopController。</p>
       </div>
 
       <h3>非 ROG Ally 设备</h3>
@@ -681,7 +731,9 @@ mode 值:    0x01 = 游戏手柄模式 (XInput)
     <!-- 9. 桌面操控模式 -->
     <section id="desktop-mode">
       <h2>桌面操控模式</h2>
-      <p>当 IME 关闭时，DesktopController 将手柄输入转换为鼠标和键盘操作，使手柄可以操控 Windows 桌面。</p>
+      <p>当 IME 关闭时，DesktopController 将手柄输入转换为鼠标和键盘操作，使手柄可以操控 Windows 桌面。
+      （ROG Ally 的硬件桌面模式由 Ally 固件接管鼠标/按键；本节描述的是软件模拟实现，
+      用于非 ROG Ally 设备或硬件切换失败时的回退。）</p>
 
       <h3>核心设计</h3>
       <ul>
@@ -752,9 +804,9 @@ if (lmag > kDeadZone) {
       <p><strong>A:</strong> 请检查以下几点：</p>
       <ul>
         <li>确认 <code>config.ini</code> 被正确加载（查看 <code>t9ime.log</code> 中的「配置已加载」日志）</li>
-        <li>确认快捷键配置正确（如 <code>toggle_hotkey = Start</code> 而非默认的 <code>Back+Start</code>）</li>
+        <li>确认快捷键配置正确（如 <code>toggle_hotkey</code>，默认 <code>Start</code> 单键切换）</li>
         <li>确认手柄已连接（查看日志中的「手柄已连接」状态）</li>
-        <li>ROG Ally 用户：如果处于硬件鼠标模式，XInput 可能无法检测 Start 键，请使用 <code>Ctrl+Alt+E</code> 键盘热键</li>
+        <li>ROG Ally 用户：如果处于硬件桌面模式，XInput 可能无法检测 Start 键，请使用 <code>Ctrl+Alt+E</code> 键盘热键或托盘左键</li>
       </ul>
 
       <h3>Q: 打不出词语或完整句子？</h3>

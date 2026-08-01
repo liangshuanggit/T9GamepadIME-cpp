@@ -7,6 +7,8 @@
 #include <cstdio>
 #include <string>
 
+#include "app/log.h"
+
 namespace app {
 
 // 已知的 ROG Ally Product ID
@@ -20,22 +22,7 @@ static constexpr ULONG kMinFeatureReportLen = 64;
 
 // 将诊断信息同时输出到 OutputDebugStringA 和日志文件
 static void WriteHidLog(const char* msg) {
-    OutputDebugStringA(msg);
-    char path[MAX_PATH] = {0};
-    DWORD n = GetModuleFileNameA(nullptr, path, MAX_PATH);
-    if (n == 0 || n >= MAX_PATH) return;
-    std::string p(path, n);
-    size_t slash = p.find_last_of("\\/");
-    if (slash == std::string::npos) return;
-    p = p.substr(0, slash + 1) + "t9ime.log";
-    FILE* f = std::fopen(p.c_str(), "a");
-    if (f) {
-        SYSTEMTIME st;
-        GetLocalTime(&st);
-        std::fprintf(f, "[%02d:%02d:%02d.%03d] %s",
-                     st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, msg);
-        std::fclose(f);
-    }
+    Log::Write(msg);
 }
 
 AllyHidController::AllyHidController() {
@@ -95,7 +82,7 @@ bool AllyHidController::SetMouseMode() {
     std::vector<unsigned char> report(report_size_, 0);
     report[0] = kReportId;      // 0x5A
     report[1] = kCodePage;      // 0xD1
-    report[2] = kCmdSetMode;    // 0x01 (SetGamepadMode)
+    report[2] = kCmdSetMode;    // 0x01 (SetMode 命令)
     report[3] = 0x01;           // 数据长度: 1 字节
     report[4] = kModeMouse;     // 0x03 = 鼠标模式
 

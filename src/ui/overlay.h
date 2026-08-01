@@ -1,9 +1,10 @@
 #pragma once
-// 屏幕覆盖层（Overlay）：在桌面右下角显示九宫格与候选。
+// 屏幕覆盖层（Overlay）：在桌面右下角显示扇形九宫格与候选。
 //
 // 使用 WS_EX_TOPMOST 置顶，WS_EX_NOACTIVATE 不抢焦点，
 // WS_EX_TRANSPARENT 点击穿透（不影响前台应用光标状态）。
-// 关闭态仅灰显九宫格；开启态显示完整九宫格 + 拼音 + 候选。
+// 关闭态仅灰显扇形键区；开启态显示完整扇形键区 + 拼音 + 候选。
+// 扇形布局：8 个方向键以弧形扇叶围绕中心静止位（右摇杆回中位）。
 
 #include <string>
 #include <vector>
@@ -37,6 +38,7 @@ struct OverlayState {
     int page_size = 8;
     std::string last_committed;
     std::string hotkey_desc;
+    char edit_highlight = 0;  // 最近触发的编辑快捷键（LB+面键）：'A'/'B'/'X'/'Y'，0=无
 };
 
 class Overlay {
@@ -65,17 +67,35 @@ private:
 
     void OnPaint(HDC hdc);
     void DrawStatus(HDC hdc);
-    void DrawGrid(HDC hdc, int ox, int oy);
+    void DrawGrid(HDC hdc, int ox, int oy);  // 扇形键区（中心静止位 + 8 方向扇叶）
+    void DrawEditShortcuts(HDC hdc, int y);  // 编辑快捷键栏（LB+面键，触发高亮）
     void DrawInfoLines(HDC hdc, int y);
     void DrawCandidates(HDC hdc, int y);
     void DrawCommitted(HDC hdc, int y);
     void DrawPunctuation(HDC hdc, int y);
 
+    struct FontSet {
+        HFONT title     = nullptr;  // 24px 状态行
+        HFONT label     = nullptr;  // 20px 标签/正文
+        HFONT digit     = nullptr;  // 36px 粗体 九宫格数字
+        HFONT small     = nullptr;  // 17px 小字（字母、提示）
+        HFONT candidate = nullptr;  // 26px 候选词
+        HFONT big       = nullptr;  // 40px 粗体 当前输入数字串
+    };
+
+    void EnsureFonts();
+    void DestroyFonts();
+    void EnsureBackBuffer(HDC hdc);
+
     HWND hwnd_ = nullptr;
     float opacity_ = 1.0f;
-    int width_ = 440;
-    int height_ = 560;
+    int width_ = 500;
+    int height_ = 640;  // 适配 720p 屏幕（工作区约 672px）
     OverlayState state_;
+    FontSet fonts_;
+    HDC mem_dc_ = nullptr;
+    HBITMAP mem_bmp_ = nullptr;
+    HGDIOBJ mem_old_ = nullptr;
 #endif
 };
 

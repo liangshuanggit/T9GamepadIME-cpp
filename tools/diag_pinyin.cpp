@@ -109,7 +109,53 @@ int main() {
     }
 #endif
 
-    // ---- 4. 期望的正确拼音展开 ----
+    // ---- 4. 候选结构分析：真实短语 vs 单字拼接 ----
+#if T9IME_USE_LIBGOOGLEPINYIN
+    printf("\n=== 候选结构分析（真实短语 vs 单字拼接） ===\n");
+    const char* cand_tests[] = {
+        "ni'hao",          // 你好（真实词）
+        "ni'hao'ma",       // 你好吗（真实话语）
+        "ni'gan'ma",       // 你干嘛（真实话语）
+        "mi'ga'o'o'a",     // 米噶哦哦啊（单字拼接垃圾）
+        "mi'hao'o'a",      // 米好哦啊（单字拼接垃圾）
+        "mi'ga",           // 米噶（无此词）
+        "ni'hao'na",       // 你好哪（边缘）
+        "mi'gao'na",       // 米高那（边缘）
+        "o'o",             // 哦哦（叠词？）
+        "mi'gao",          // 米高（？）
+        "gao'na",          // 高那（？）
+        "wo'xiang",        // 我想（真实短语）
+        "o'a",             // 哦啊（？）
+        "hao'o",           // 好哦（？）
+        "hao'o'a",         // 好哦啊（？）
+        "gan'o'a",         // 干哦啊（？）
+        "gan'ma",          // 干嘛（真实词）
+        "ni'gan",          // 你敢（真实词）
+        "ni'gao",          // 你高（？）
+        "xiang'ni"         // 想你（真实词）
+    };
+    for (const char* ct : cand_tests) {
+        std::vector<std::string> cands = ime.Search(ct, 20);
+        bool has_phrase = ime.HasPhrase(ct);
+        size_t n_syl = 1;
+        for (const char* p = ct; *p; ++p) if (*p == '\'') ++n_syl;
+        // 打印整句候选的实际词条数
+        ime_pinyin::im_reset_search();
+        ime_pinyin::im_search(ct, std::strlen(ct));
+        size_t n_lemma = 0, n_multi = 0;
+        ime_pinyin::im_get_sentence_lemma_stats(&n_lemma, &n_multi);
+        printf("  im_search(\"%s\"): candidates=%zu, syllables=%zu, lemmas=%zu(multi=%zu), HasPhrase=%s ->",
+               ct, cands.size(), n_syl, n_lemma, n_multi, has_phrase ? "YES" : "no");
+        for (size_t i = 0; i < cands.size() && i < 12; ++i) {
+            size_t nchar = 0;
+            for (unsigned char c : cands[i]) if ((c & 0xC0) != 0x80) ++nchar;
+            printf(" \"%s\"(%zu字)", cands[i].c_str(), nchar);
+        }
+        printf("\n");
+    }
+#endif
+
+    // ---- 5. 期望的正确拼音展开 ----
     printf("\n=== 期望的正确拼音展开（参考） ===\n");
     printf("  64426 (nihao): nihao, mihao, nigan, migao, ...\n");
     printf("  826 (tao): tao, tan, sau, ...\n");

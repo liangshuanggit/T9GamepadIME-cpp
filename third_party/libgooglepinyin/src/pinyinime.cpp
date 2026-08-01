@@ -129,6 +129,22 @@ extern "C" {
     return matrix_search->get_spl_start(spl_start);
   }
 
+  size_t im_get_sentence_lemma_num() {
+    if (NULL == matrix_search)
+      return 0;
+
+    return matrix_search->get_sentence_lemma_num();
+  }
+
+  void im_get_sentence_lemma_stats(size_t *total_lemmas,
+                                   size_t *multi_char_lemmas) {
+    if (NULL == matrix_search)
+      return;
+
+    matrix_search->get_sentence_lemma_stats(total_lemmas,
+                                            multi_char_lemmas);
+  }
+
   size_t im_choose(size_t choice_id) {
     if (NULL == matrix_search)
       return 0;

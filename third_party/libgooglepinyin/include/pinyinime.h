@@ -150,6 +150,29 @@ extern "C" {
   size_t im_get_spl_start_pos(const uint16 *&spl_start);
 
   /**
+   * Get the number of lemmas (dictionary entries) which compose the full
+   * sentence candidate of the current search result. Call after im_search().
+   * A real word like "nihao" (你好) is a single lemma, so 1 is returned;
+   * a meaningless concatenation like "migaoooa" (米 噶 哦 哦 啊) is composed
+   * of 5 single-character lemmas, so 5 is returned.
+   *
+   * @return The number of lemmas composing the full sentence candidate.
+   */
+  size_t im_get_sentence_lemma_num();
+
+  /**
+   * Get the composition statistics of the full sentence candidate of the
+   * current search result. Call after im_search().
+   *
+   * @param total_lemmas Returns the total number of lemmas composing the
+   * full sentence candidate.
+   * @param multi_char_lemmas Returns the number of lemmas which are
+   * multi-character (>= 2 Chinese characters) words.
+   */
+  void im_get_sentence_lemma_stats(size_t *total_lemmas,
+                                   size_t *multi_char_lemmas);
+
+  /**
    * Choose a candidate and make it fixed. If the candidate does not match
    * the end of all spelling ids, new candidates will be provided from the
    * first unfixed position. If the candidate matches the end of the all

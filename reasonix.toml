@@ -1,0 +1,2 @@
+[permissions]
+allow = ["Bash=cd \"C:\\Users\\cools\\Documents\\GitHub\\T9GamepadIME-cpp\" && python - <<'EOF'\ns = open('tests/test_main.cpp', encoding='utf-8').read()\n# 定位 dir + \" 后面跟的字节\ni = s.find('WriteTestFile(dir + \"')\nprint(\"context bytes:\", repr(s[i:i+40]))\nneedle = 'dir + \"\\\\\\\\_sys_'\nprint(\"needle:\", repr(needle), \"found:\", needle in s)\nEOF"]

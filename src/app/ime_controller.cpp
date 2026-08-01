@@ -1,5 +1,6 @@
 #include "app/ime_controller.h"
 
+#include <cstdio>
 #include <string>
 
 #if defined(_WIN32)
@@ -15,7 +16,6 @@
 #include "app/text_injector.h"
 #include "t9/keypad.h"
 #include "t9/t9_keymap.h"
-
 namespace app {
 
 // 常用中文标点：无数字输入时作为候选词显示，可直接上屏
@@ -23,6 +23,15 @@ static const std::vector<std::string> kCommonPunctuation = {
     "，", "。", "、", "！", "？", "：", "；", "…",
     "—", "～", "（", "）", "「", "」", "《", "》"
 };
+
+// 调试日志：写入 OutputDebugStringA（同文件其它分支的既有方式）
+static void ImeLog(const char* msg) {
+#if defined(_WIN32)
+    OutputDebugStringA(msg);
+#else
+    (void)msg;
+#endif
+}
 
 ImeController::ImeController(t9::T9Engine* engine, const Config& cfg)
     : engine_(engine),
@@ -81,6 +90,8 @@ void ImeController::ResetState() {
     // 防止模式切换后 XInput 恢复时因残留按键状态导致立即重新触发切换。
     // 用户需要松开快捷键后再次按下才能触发下一次切换。
     prev_combo_ = true;
+    edit_highlight_ = 0;
+    pending_face_ = false;
 }
 
 void ImeController::EnterLetterMode(gamepad::Direction dir) {
@@ -114,6 +125,13 @@ bool ImeController::ToggleComboEdge(const gamepad::XInputPad& pad) {
     return edge;
 }
 
+char ImeController::EditHighlight() const {
+    if (edit_highlight_ == 0) return 0;
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - edit_highlight_at_).count();
+    return elapsed <= kEditHighlightMs ? edit_highlight_ : 0;
+}
+
 bool ImeController::Update(const gamepad::XInputPad& pad) {
     bool changed = false;
 
@@ -130,9 +148,51 @@ bool ImeController::Update(const gamepad::XInputPad& pad) {
     // 2) 关闭态：不处理任何输入，按键保持原功能
     if (!enabled_) return changed;
 
-    // 3) 右摇杆拨动 -> 触发九宫格键位
+    // 3) LB 编辑修饰键：LB + 面键 -> 全选/剪切/复制/粘贴。
+    //    组合判定含一帧回溯：面键若先于 LB 被检测到按下（同帧按下或手柄
+    //    扫描导致 LB 晚一帧上报），先挂起该按下沿，下一帧 LB 到位时回溯为
+    //    组合，避免面键常规功能（上屏/退格）抢先触发。
+    bool lb = pad.Down(gamepad::Button::kLB);
+
+    // 每帧重置文本注入标记（A 常规上屏时置位）
+    just_injected_ = false;
+
+    // 3a) 消费上一帧挂起的面键按下沿
+    if (pending_face_) {
+        gamepad::Button btn = pending_btn_;
+        pending_face_ = false;
+        if (lb) {
+            changed |= TriggerEditShortcut(btn);  // LB 已到位 -> 回溯为组合
+        } else {
+            changed |= HandleFaceNormal(btn);     // 无 LB -> 按常规功能处理
+        }
+    }
+
+    // 3b) 本帧面键按下沿：LB 已按住 -> 立即组合；否则挂起一帧等待确认。
+    //     每帧只处理优先级最高的一个面键（A > B > X > Y，保持原有 else-if 语义），
+    //     避免同帧多键互相覆盖。
+    {
+        const gamepad::Button kFaces[] = {
+            gamepad::Button::kA, gamepad::Button::kB,
+            gamepad::Button::kX, gamepad::Button::kY,
+        };
+        for (gamepad::Button btn : kFaces) {
+            if (!pad.Pressed(btn)) continue;
+            if (lb) {
+                changed |= TriggerEditShortcut(btn);
+            } else if (!pending_face_) {
+                pending_face_ = true;
+                pending_btn_ = btn;
+            }
+            break;  // 一帧一个面键按下沿
+        }
+    }
+
+    // 3b) 右摇杆拨动 -> 触发九宫格键位
+    //     始终调用 flick_.Update() 保持拨动检测状态同步，
+    //     但 LB 按住期间不提交数字（避免编辑快捷键操作时误输入）。
     gamepad::Direction fired = flick_.Update(pad.RightStickX(), pad.RightStickY());
-    if (fired != gamepad::Direction::kNone) {
+    if (!lb && fired != gamepad::Direction::kNone) {
         // 新的拨动：先退出字母候选模式
         if (letter_mode_) {
             ExitLetterMode();
@@ -153,6 +213,7 @@ bool ImeController::Update(const gamepad::XInputPad& pad) {
     }
 
     // 3b) 长按检测：保持锁定方向不回中超过阈值 -> 进入该键的字母候选模式
+    //     （LB 按住期间不进入字母模式，避免编辑操作时误触发）
     {
         auto now = std::chrono::steady_clock::now();
         int dt = static_cast<int>(
@@ -160,7 +221,7 @@ bool ImeController::Update(const gamepad::XInputPad& pad) {
                 now - last_update_).count());
         last_update_ = now;
 
-        if (!letter_mode_ && flick_.Pointing() != gamepad::Direction::kNone) {
+        if (!lb && !letter_mode_ && flick_.Pointing() != gamepad::Direction::kNone) {
             if (long_press_dir_ == flick_.Pointing()) {
                 long_press_elapsed_ms_ += dt;
                 if (!long_press_consumed_ &&
@@ -201,9 +262,42 @@ bool ImeController::Update(const gamepad::XInputPad& pad) {
         }
     }
 
-    // 5) A 确认上屏当前候选 -> 注入到前台窗口光标处
-    just_injected_ = false;
-    if (pad.Pressed(gamepad::Button::kA)) {
+    // 5) A/B 常规功能（上屏/退格）已并入 HandleFaceNormal：
+    //    面键按下沿统一在 3a/3b 处处理（组合或挂起消费）。
+
+    return changed;
+}
+
+// LB+面键 组合触发：注入 Ctrl+字母，并记录高亮供界面显示
+bool ImeController::TriggerEditShortcut(gamepad::Button btn) {
+    char key = 0;     // 高亮标识（'A'/'B'/'X'/'Y'）
+    char letter = 0;  // 注入的 Ctrl 组合字母
+    const char* action = "";  // 功能名
+    const char* combo = "";   // 快捷键描述
+    switch (btn) {
+        case gamepad::Button::kA:
+            key = 'A'; letter = 'A'; action = "全选"; combo = "Ctrl+A"; break;
+        case gamepad::Button::kX:
+            key = 'X'; letter = 'X'; action = "剪切"; combo = "Ctrl+X"; break;
+        case gamepad::Button::kY:
+            key = 'Y'; letter = 'C'; action = "复制"; combo = "Ctrl+C"; break;
+        case gamepad::Button::kB:
+            key = 'B'; letter = 'V'; action = "粘贴"; combo = "Ctrl+V"; break;
+        default:
+            return false;
+    }
+    InjectCtrlKey(letter);
+    edit_highlight_ = key;
+    edit_highlight_at_ = std::chrono::steady_clock::now();
+    char buf[96];
+    std::snprintf(buf, sizeof(buf), "[IME] LB+%c -> %s %s\n", key, action, combo);
+    ImeLog(buf);
+    return true;
+}
+
+// 面键常规功能（无 LB 时）：A 确认上屏候选；B 退格/取消字母模式
+bool ImeController::HandleFaceNormal(gamepad::Button btn) {
+    if (btn == gamepad::Button::kA) {
         if (!candidates_.empty()) {
             last_committed_ = candidates_[selected_];
             // 将候选词以 Unicode 事件注入到当前前台窗口
@@ -217,31 +311,27 @@ bool ImeController::Update(const gamepad::XInputPad& pad) {
             } else {
                 RefreshCandidates();
             }
-            changed = true;
+            return true;
         }
-    }
-
-    // 6) B 退格
-    if (pad.Pressed(gamepad::Button::kB)) {
+    } else if (btn == gamepad::Button::kB) {
         if (letter_mode_) {
             // 字母候选模式：取消并退出
             ExitLetterMode();
             engine_->Clear();
-            changed = true;
+            return true;
         } else if (!engine_->Digits().empty()) {
             // 有数字输入：删除最后一位数字
             engine_->PopKey();
             selected_ = 0;
             RefreshCandidates();
-            changed = true;
+            return true;
         } else {
             // 无数字输入（标点模式）：向前台窗口发送退格键，
             // 删除光标处的内容
             InjectBackspace();
         }
     }
-
-    return changed;
+    return false;
 }
 
 }  // namespace app

@@ -98,6 +98,55 @@ std::vector<std::string> PinyinIme::Search(const std::string& spelling, size_t m
 #endif
 }
 
+bool PinyinIme::HasPhrase(const std::string& spelling) {
+    return SearchAndCheck(spelling, 1).is_phrase;
+}
+
+PinyinIme::SearchResult PinyinIme::SearchAndCheck(const std::string& spelling,
+                                                  size_t max_candidates) {
+    SearchResult result;
+    if (!opened_ || spelling.empty()) return result;
+#if T9IME_USE_LIBGOOGLEPINYIN
+    // im_search 是增量搜索：基于前一次结果继续。搜索不同拼音串前必须重置，
+    // 否则引擎会尝试在前一次搜索结果上做增量，导致候选缺失或错误。
+    ime_pinyin::im_reset_search();
+    size_t total = ime_pinyin::im_search(spelling.c_str(), spelling.size());
+    if (total == 0) return result;
+
+    // 音节数 = 分隔符数量 + 1
+    size_t n_syllables = 1;
+    for (char c : spelling) {
+        if (c == '\'') ++n_syllables;
+    }
+
+    // 单音节（单个汉字）恒为真实汉字，直接接受。
+    if (n_syllables == 1) {
+        result.is_phrase = true;
+        result.candidates = CollectCandidates(total, max_candidates);
+        return result;
+    }
+
+    // 统计整句候选的"词条组成结构"：总词条数与多字（>=2 字）词条数。
+    // 每个汉字对应一个音节，所以"跨 >=2 个音节"的词条即为多字词条。
+    size_t n_lemma = 0, n_multi = 0;
+    ime_pinyin::im_get_sentence_lemma_stats(&n_lemma, &n_multi);
+    if (n_lemma == 0) return result;
+
+    // 多字词条数 >= 单字词条数（即 2*多字 >= 总词条数），说明以真实词语
+    // 为主；否则单字兜底占主导，属于无意义拼接（如 米+噶+哦哦+啊）。
+    result.is_phrase = (n_multi * 2 >= n_lemma);
+    if (result.is_phrase) {
+        result.candidates = CollectCandidates(total, max_candidates);
+    }
+    return result;
+#else
+    (void)max_candidates;
+    result.is_phrase = true;
+    result.candidates = {"[stub:" + spelling + "]"};  // 桩实现：回显拼音
+    return result;
+#endif
+}
+
 std::vector<std::string> PinyinIme::Choose(size_t index, size_t max_candidates) {
     if (!opened_) return {};
 #if T9IME_USE_LIBGOOGLEPINYIN

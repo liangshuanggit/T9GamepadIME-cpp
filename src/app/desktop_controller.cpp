@@ -15,28 +15,15 @@
 #include <cstdio>
 #include <string>
 
+#include "app/log.h"
+
 namespace app {
 
 #if defined(_WIN32)
 
 // 诊断日志输出到 OutputDebugStringA 和日志文件
 static void DcLog(const char* msg) {
-    OutputDebugStringA(msg);
-    char dir[MAX_PATH] = {0};
-    GetModuleFileNameA(nullptr, dir, MAX_PATH);
-    std::string d(dir);
-    size_t slash = d.find_last_of("\\/");
-    if (slash != std::string::npos) {
-        d = d.substr(0, slash + 1);
-        FILE* f = std::fopen((d + "t9ime.log").c_str(), "a");
-        if (f) {
-            SYSTEMTIME st;
-            GetLocalTime(&st);
-            std::fprintf(f, "[%02d:%02d:%02d.%03d] %s",
-                         st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, msg);
-            std::fclose(f);
-        }
-    }
+    Log::Write(msg);
 }
 
 void DesktopController::SetActive(bool active) {
@@ -48,6 +35,11 @@ void DesktopController::SetActive(bool active) {
 }
 
 void DesktopController::MoveMouse(float dx, float dy) {
+#ifdef T9IME_TESTING
+    (void)dx;
+    (void)dy;
+    return;  // 测试桩：不实际发送输入
+#endif
     if (dx == 0.0f && dy == 0.0f) return;
     INPUT input = {};
     input.type = INPUT_MOUSE;
@@ -58,6 +50,10 @@ void DesktopController::MoveMouse(float dx, float dy) {
 }
 
 void DesktopController::ScrollWheel(int delta) {
+#ifdef T9IME_TESTING
+    (void)delta;
+    return;  // 测试桩：不实际发送输入
+#endif
     if (delta == 0) return;
     INPUT input = {};
     input.type = INPUT_MOUSE;
@@ -67,6 +63,10 @@ void DesktopController::ScrollWheel(int delta) {
 }
 
 void DesktopController::ClickKey(unsigned short vk) {
+#ifdef T9IME_TESTING
+    (void)vk;
+    return;  // 测试桩：不实际发送输入
+#endif
     INPUT inputs[2] = {};
     inputs[0].type = INPUT_KEYBOARD;
     inputs[0].ki.wVk = vk;
@@ -78,6 +78,10 @@ void DesktopController::ClickKey(unsigned short vk) {
 }
 
 void DesktopController::ClickMouse(int button) {
+#ifdef T9IME_TESTING
+    (void)button;
+    return;  // 测试桩：不实际发送输入
+#endif
     INPUT inputs[2] = {};
     inputs[0].type = INPUT_MOUSE;
     inputs[1].type = INPUT_MOUSE;
@@ -145,10 +149,8 @@ void DesktopController::ResetState() {
 }
 
 void DesktopController::Update(const gamepad::XInputPad& pad) {
-#ifdef T9IME_TESTING
-    (void)pad;
-    return;
-#endif
+    // 注：T9IME_TESTING 下不直接返回——发送函数（MoveMouse/ClickKey 等）
+    // 已是桩实现，状态机照常运行，便于单元测试覆盖 LB PageUp 等逻辑。
 
     // ---- 活跃时：发送鼠标/键盘输入 ----
     if (active_) {
@@ -201,21 +203,33 @@ void DesktopController::Update(const gamepad::XInputPad& pad) {
     // ---- 按键边沿检测（无论是否活跃都跟踪状态）----
     // 活跃时发送事件，非活跃时仅更新 prev_* 以保持状态同步
 
+    bool lb = pad.Down(gamepad::Button::kLB);
     bool a = pad.Down(gamepad::Button::kA);
+    bool b = pad.Down(gamepad::Button::kB);
+    bool x = pad.Down(gamepad::Button::kX);
+    bool y = pad.Down(gamepad::Button::kY);
+
+    // LB：单独按并松开 -> 发送 PageUp（仅释放沿触发一次）。
+    // 编辑快捷键（LB+面键）仅在 IME 开启时由 ImeController 处理，桌面模式下不响应。
+    if (active_ && prev_lb_ && !lb) {
+        ClickKey(VK_PRIOR);
+        DcLog("[Desktop] LB -> PageUp\n");
+    }
+
+    // 面键保持原有功能：A 左键 / B 右键 / X 退格 / Y 回车
     if (active_ && a && !prev_a_) { ClickMouse(0); DcLog("[Desktop] A -> 左键单击\n"); }
     prev_a_ = a;
 
-    bool b = pad.Down(gamepad::Button::kB);
     if (active_ && b && !prev_b_) { ClickMouse(1); DcLog("[Desktop] B -> 右键单击\n"); }
     prev_b_ = b;
 
-    bool x = pad.Down(gamepad::Button::kX);
     if (active_ && x && !prev_x_) { ClickKey(VK_BACK); DcLog("[Desktop] X -> 退格\n"); }
     prev_x_ = x;
 
-    bool y = pad.Down(gamepad::Button::kY);
     if (active_ && y && !prev_y_) { ClickKey(VK_RETURN); DcLog("[Desktop] Y -> 回车\n"); }
     prev_y_ = y;
+
+    prev_lb_ = lb;
 
     bool du = pad.Down(gamepad::Button::kDpadUp);
     if (active_ && du && !prev_dpad_up_) ClickKey(VK_UP);
@@ -232,10 +246,6 @@ void DesktopController::Update(const gamepad::XInputPad& pad) {
     bool dr = pad.Down(gamepad::Button::kDpadRight);
     if (active_ && dr && !prev_dpad_right_) ClickKey(VK_RIGHT);
     prev_dpad_right_ = dr;
-
-    bool lb = pad.Down(gamepad::Button::kLB);
-    if (active_ && lb && !prev_lb_) ClickKey(VK_PRIOR);
-    prev_lb_ = lb;
 
     bool rb = pad.Down(gamepad::Button::kRB);
     if (active_ && rb && !prev_rb_) ClickKey(VK_NEXT);

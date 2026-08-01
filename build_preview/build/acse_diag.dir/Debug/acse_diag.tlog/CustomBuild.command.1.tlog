@@ -1,0 +1,10 @@
+^C:\USERS\COOLS\DOCUMENTS\GITHUB\T9GAMEPADIME-CPP\BUILD_PREVIEW\CMAKELISTS.TXT
+setlocal
+C:\Users\cools\AppData\Local\Programs\Python\Python312\Lib\site-packages\cmake\data\bin\cmake.exe -SC:/Users/cools/Documents/GitHub/T9GamepadIME-cpp/build_preview -BC:/Users/cools/Documents/GitHub/T9GamepadIME-cpp/build_preview/build --check-stamp-file C:/Users/cools/Documents/GitHub/T9GamepadIME-cpp/build_preview/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

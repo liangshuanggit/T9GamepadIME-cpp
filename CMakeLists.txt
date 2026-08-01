@@ -57,6 +57,7 @@ add_executable(t9ime
     src/gamepad/stick.cpp
     src/app/config.cpp
     src/app/ime_controller.cpp
+    src/app/log.cpp
     src/app/text_injector.cpp
     src/app/desktop_controller.cpp
     src/app/ally_hid_controller.cpp
@@ -95,7 +96,9 @@ add_executable(t9_tests
     src/gamepad/stick.cpp
     src/app/config.cpp
     src/app/ime_controller.cpp
+    src/app/log.cpp
     src/app/text_injector.cpp
+    src/app/desktop_controller.cpp
 )
 target_include_directories(t9_tests PRIVATE src)
 target_compile_definitions(t9_tests PRIVATE T9IME_TESTING=1)

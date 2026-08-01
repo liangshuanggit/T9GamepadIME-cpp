@@ -1,2 +1,25 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# 源码/文本统一使用 LF 作为仓库规范换行符（Windows 检出时可转 CRLF）
+*.cpp text eol=lf
+*.h text eol=lf
+*.c text eol=lf
+*.cc text eol=lf
+*.cxx text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+*.md text eol=lf
+*.ini text eol=lf
+*.txt text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# 二进制文件不做换行处理
+*.dat binary
+*.ico binary
+*.png binary
+*.jpg binary
+*.exe binary
+

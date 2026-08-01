@@ -11,11 +11,14 @@
 //   Y          → 回车键
 //   DPad上/下  → 方向键 上/下
 //   DPad左/右  → 方向键 左/右
-//   LB         → PageUp
+//   LB         → PageUp（按并松开时触发）
 //   RB         → PageDown
 //   Back       → Windows 键（打开开始菜单）
 //   LT         → 鼠标滚轮向下（持续）
 //   RT         → 鼠标滚轮向上（持续）
+//
+// 编辑快捷键（LB+面键：全选/剪切/复制/粘贴）仅由 ImeController 在 IME 开启
+// （界面显示并启用）时处理；桌面模式下不响应，LB 保持 PageUp 功能。
 //
 // 设计说明：
 //   SetActive(false) 时，Update 仅跟踪按键状态（不发送任何输入），

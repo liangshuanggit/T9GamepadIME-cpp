@@ -98,9 +98,7 @@ bool InjectText(const std::string& utf8_text) {
         inputs.push_back(up);
     }
 
-    // 短暂延时，确保前台窗口已准备好接收输入
-    Sleep(10);
-
+    // 生成按键事件后立即发送，无需额外延时（SendInput 本身有系统级调度）
     UINT sent = SendInput(static_cast<UINT>(inputs.size()),
                           inputs.data(), sizeof(INPUT));
     return sent == static_cast<UINT>(inputs.size());
@@ -123,9 +121,37 @@ bool InjectBackspace() {
     inputs[1].ki.wVk = VK_BACK;
     inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
 
-    Sleep(10);
     UINT sent = SendInput(2, inputs, sizeof(INPUT));
     return sent == 2;
+}
+
+bool InjectCtrlKey(char letter) {
+#ifdef T9IME_TESTING
+    return true;
+#endif
+    if (!IsForegroundAcceptable() || !EnsureNotOverlayFocused()) {
+        return false;
+    }
+
+    // 转为大写虚拟键码（'a'..'z' -> 'A'..'Z'，VK_A..VK_Z）
+    if (letter >= 'a' && letter <= 'z') letter = static_cast<char>(letter - 32);
+    if (letter < 'A' || letter > 'Z') return false;
+
+    // Ctrl + letter 按下 -> letter 释放 -> Ctrl 释放
+    INPUT inputs[4] = {};
+    inputs[0].type = INPUT_KEYBOARD;
+    inputs[0].ki.wVk = VK_CONTROL;
+    inputs[1].type = INPUT_KEYBOARD;
+    inputs[1].ki.wVk = static_cast<WORD>(letter);
+    inputs[2].type = INPUT_KEYBOARD;
+    inputs[2].ki.wVk = static_cast<WORD>(letter);
+    inputs[2].ki.dwFlags = KEYEVENTF_KEYUP;
+    inputs[3].type = INPUT_KEYBOARD;
+    inputs[3].ki.wVk = VK_CONTROL;
+    inputs[3].ki.dwFlags = KEYEVENTF_KEYUP;
+
+    UINT sent = SendInput(4, inputs, sizeof(INPUT));
+    return sent == 4;
 }
 
 #else  // 非 Windows 平台：桩实现
@@ -136,6 +162,11 @@ bool InjectText(const std::string& utf8_text) {
 }
 
 bool InjectBackspace() {
+    return false;
+}
+
+bool InjectCtrlKey(char letter) {
+    (void)letter;
     return false;
 }
 

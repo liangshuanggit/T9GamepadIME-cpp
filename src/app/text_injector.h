@@ -16,4 +16,8 @@ bool InjectText(const std::string& utf8_text);
 // 向前台窗口发送一次退格键（删除光标前一个字符）。
 bool InjectBackspace();
 
+// 向前台窗口发送 Ctrl+字母 组合键（全选/剪切/复制/粘贴等编辑快捷键）。
+// letter 为 'A'/'X'/'C'/'V' 等（内部转大写）。返回是否成功。
+bool InjectCtrlKey(char letter);
+
 }  // namespace app

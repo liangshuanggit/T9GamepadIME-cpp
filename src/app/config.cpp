@@ -27,6 +27,28 @@ bool IEquals(const std::string& a, const std::string& b) {
     return true;
 }
 
+// 解析浮点数并校验：仅当整串为合法数值时才返回 true 并赋值。
+bool ParseFloatStrict(const std::string& s, float* out) {
+    if (s.empty()) return false;
+    char* end = nullptr;
+    errno = 0;
+    double v = std::strtod(s.c_str(), &end);
+    if (errno != 0 || end == s.c_str() || *end != '\0') return false;
+    *out = static_cast<float>(v);
+    return true;
+}
+
+// 解析整数并校验：仅当整串为合法整数时才返回 true 并赋值。
+bool ParseIntStrict(const std::string& s, int* out) {
+    if (s.empty()) return false;
+    char* end = nullptr;
+    errno = 0;
+    long v = std::strtol(s.c_str(), &end, 10);
+    if (errno != 0 || end == s.c_str() || *end != '\0') return false;
+    *out = static_cast<int>(v);
+    return true;
+}
+
 struct NameMap {
     const char* name;
     gamepad::Button button;
@@ -104,21 +126,34 @@ bool Config::LoadFromFile(const std::string& path) {
             auto combo = ParseCombo(value);
             if (!combo.empty()) toggle_combo = combo;
         } else if (IEquals(key, "stick_activate")) {
-            stick_activate = static_cast<float>(std::atof(value.c_str()));
+            float v;
+            if (ParseFloatStrict(value, &v)) {
+                stick_activate = v;
+                if (stick_activate < 0.0f) stick_activate = 0.0f;
+                if (stick_activate > 1.0f) stick_activate = 1.0f;
+            }
         } else if (IEquals(key, "stick_release")) {
-            stick_release = static_cast<float>(std::atof(value.c_str()));
+            float v;
+            if (ParseFloatStrict(value, &v)) {
+                stick_release = v;
+                if (stick_release < 0.0f) stick_release = 0.0f;
+                if (stick_release > 1.0f) stick_release = 1.0f;
+            }
         } else if (IEquals(key, "long_press_ms")) {
-            long_press_ms = std::atoi(value.c_str());
-            if (long_press_ms < 0) long_press_ms = 0;
+            int v;
+            if (ParseIntStrict(value, &v) && v >= 0) long_press_ms = v;
         } else if (IEquals(key, "candidate_page")) {
-            candidate_page = std::atoi(value.c_str());
-            if (candidate_page < 1) candidate_page = 1;
+            int v;
+            if (ParseIntStrict(value, &v) && v >= 1) candidate_page = v;
         } else if (IEquals(key, "start_enabled")) {
             start_enabled = IEquals(value, "true") || value == "1";
         } else if (IEquals(key, "overlay_opacity")) {
-            overlay_opacity = static_cast<float>(std::atof(value.c_str()));
-            if (overlay_opacity < 0.0f) overlay_opacity = 0.0f;
-            if (overlay_opacity > 1.0f) overlay_opacity = 1.0f;
+            float v;
+            if (ParseFloatStrict(value, &v)) {
+                overlay_opacity = v;
+                if (overlay_opacity < 0.0f) overlay_opacity = 0.0f;
+                if (overlay_opacity > 1.0f) overlay_opacity = 1.0f;
+            }
         }
     }
     return true;

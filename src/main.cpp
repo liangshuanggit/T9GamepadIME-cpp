@@ -37,6 +37,7 @@
 #include "app/config.h"
 #include "app/desktop_controller.h"
 #include "app/ime_controller.h"
+#include "app/log.h"
 #include "gamepad/xinput_pad.h"
 #include "ime/pinyin_ime.h"
 #include "t9/keypad.h"
@@ -77,21 +78,7 @@ std::string ExeDir() {
 
 // 将诊断信息同时输出到 OutputDebugStringA 和日志文件
 void WriteLog(const char* msg) {
-#if defined(_WIN32)
-    OutputDebugStringA(msg);
-#endif
-    std::string dir = ExeDir();
-    if (!dir.empty()) {
-        std::string path = dir + "t9ime.log";
-        FILE* f = std::fopen(path.c_str(), "a");
-        if (f) {
-            SYSTEMTIME st;
-            GetLocalTime(&st);
-            std::fprintf(f, "[%02d:%02d:%02d.%03d] %s",
-                         st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, msg);
-            std::fclose(f);
-        }
-    }
+    app::Log::Write(msg);
 }
 
 std::string ResolveDict(const std::string& given) {
@@ -140,6 +127,8 @@ ui::OverlayState MakeOverlayState(const t9::T9Engine& engine,
     s.page_size      = ime.PageSize();
     s.last_committed = ime.LastCommitted();
     s.hotkey_desc    = app::DescribeCombo(cfg.toggle_combo);
+    // 编辑快捷键高亮：仅 IME 开启（界面启用）时由 ImeController 触发
+    s.edit_highlight = ime.EditHighlight();
     return s;
 }
 
@@ -169,6 +158,16 @@ const t9::T9Engine* g_engine = nullptr;
 const app::Config* g_cfg = nullptr;
 bool* g_running = nullptr;
 bool g_pad_connected = false;
+
+// 在托盘图标上弹出一个气泡提示
+void ShowTrayBalloon(const wchar_t* title, const wchar_t* text) {
+    g_nid.uFlags = NIF_INFO;
+    wcscpy_s(g_nid.szInfo, text);
+    wcscpy_s(g_nid.szInfoTitle, title);
+    g_nid.dwInfoFlags = NIIF_INFO;
+    g_nid.uTimeout = 10000;
+    Shell_NotifyIconW(NIM_MODIFY, &g_nid);
+}
 
 // 检查开机启动是否已启用（注册表 HKCU\...\Run 下是否有 T9GamepadIME 值）
 bool IsAutoStartEnabled() {
@@ -211,14 +210,15 @@ void UpdateTrayTooltip(bool enabled) {
     else
         wcscpy_s(g_nid.szTip, L"T9 手柄输入法 - 关闭");
     g_nid.uFlags = NIF_TIP;
-    Shell_NotifyIconW(NIM_MODIFY, &g_nid);
+    if (!Shell_NotifyIconW(NIM_MODIFY, &g_nid)) {
+        WriteLog("[错误] 更新托盘图标失败\n");
+    }
 }
 
 // 切换 IME 开关并同步界面与硬件模式
-void ToggleIme() {
-    if (!g_ime) return;
-    g_ime->ToggleEnabled();
-    bool en = g_ime->Enabled();
+// 应用 IME 开关状态：同步界面、硬件/软件模式、快捷键与工具提示。
+// 托盘与手柄快捷键两条触发路径共用，避免逻辑分叉导致状态漂移。
+void ApplyImeEnabled(bool en) {
     WriteLog(en ? "[Toggle] IME 开启\n" : "[Toggle] IME 关闭\n");
 
     if (g_overlay) {
@@ -229,27 +229,46 @@ void ToggleIme() {
         }
     }
     // 硬件模式策略：
-    //   ROG Ally 始终保持游戏手柄模式（XInput 可用），确保 Start 键始终可检测。
-    //   IME 关闭时不切换到硬件鼠标模式，而是用软件 DesktopController 模拟桌面操控。
-    //   （SetMouseMode 会导致 XInput 停止工作，Start 键无法检测，快捷键失效。）
-    if (g_has_ally && g_ally_hid && en) {
-        // 仅在开启时确保处于游戏手柄模式
-        if (!g_ally_hid->SetGamepadMode()) {
-            std::string err = std::string("[Toggle] SetGamepadMode 失败: ")
+    //   ROG Ally：IME 开启 -> 硬件游戏手柄模式（XInput 输入可用）；
+    //             IME 关闭 -> 硬件桌面（鼠标）模式，由 Ally 固件接管
+    //             鼠标/按键（桌面模式下 XInput 通常断开，手柄 Start 键
+    //             快捷键失效，需用托盘图标或 Ctrl+Alt+E 重新开启 IME）。
+    //   硬件切换失败（或非 ROG Ally）时降级为软件 DesktopController 模拟桌面操控。
+    bool hw_ok = false;
+    if (g_has_ally && g_ally_hid) {
+        bool ok = en ? g_ally_hid->SetGamepadMode()
+                     : g_ally_hid->SetMouseMode();
+        if (!ok) {
+            // 本次切换失败：降级为软件模式，但不永久禁用硬件路径（
+            // 下次切换仍会重试，避免一次临时失败导致本会话硬件失效）
+            std::string err = std::string("[Toggle] 硬件模式切换失败: ")
                             + g_ally_hid->LastError() + "\n";
             WriteLog(err.c_str());
         }
+        hw_ok = ok;
     }
-    // 软件桌面控制器：IME 关闭时对所有设备激活（含 ROG Ally）
-    if (g_desktop) g_desktop->SetActive(!en);
+    // 软件桌面控制器：仅当 IME 关闭且硬件桌面模式未接管时激活
+    // （非 ROG Ally 或切换失败 -> 软件模拟；硬件桌面模式成功 -> 由固件接管）
+    bool need_sw_desktop = !en && !hw_ok;
+    if (g_desktop) g_desktop->SetActive(need_sw_desktop);
     // 关闭界面（IME 关闭）后向前台发送两次 Ctrl+Alt+C
     if (!en && g_desktop) g_desktop->PressCtrlAltCTwice();
     // 刷新两个控制器的内部状态，防止过期状态导致按键功能不生效
     if (g_desktop) g_desktop->ResetState();
-    g_ime->ResetState();
-    WriteLog(en ? "[Toggle] -> 游戏手柄输入模式\n"
-                  : "[Toggle] -> 桌面操控模式（软件）\n");
+    if (g_ime) g_ime->ResetState();
+    if (en) {
+        WriteLog("[Toggle] -> 游戏手柄输入模式\n");
+    } else {
+        WriteLog(need_sw_desktop ? "[Toggle] -> 桌面操控模式（软件）\n"
+                                 : "[Toggle] -> 桌面操控模式（硬件）\n");
+    }
     UpdateTrayTooltip(en);
+}
+
+void ToggleIme() {
+    if (!g_ime) return;
+    g_ime->ToggleEnabled();
+    ApplyImeEnabled(g_ime->Enabled());
 }
 
 // 托盘隐藏窗口的 WndProc
@@ -321,7 +340,9 @@ void AddTrayIcon(HWND hwnd) {
         g_nid.hIcon = LoadIconW(nullptr, (LPCWSTR)IDI_APPLICATION);
     }
     wcscpy_s(g_nid.szTip, L"T9 手柄输入法 - 关闭");
-    Shell_NotifyIconW(NIM_ADD, &g_nid);
+    if (!Shell_NotifyIconW(NIM_ADD, &g_nid)) {
+        WriteLog("[错误] 添加托盘图标失败\n");
+    }
 }
 
 void RemoveTrayIcon() {
@@ -356,17 +377,35 @@ void MarkFirstRunDone() {
     }
 }
 
-// 在托盘图标上弹出一个气泡提示
-void ShowTrayBalloon(const wchar_t* title, const wchar_t* text) {
-    g_nid.uFlags = NIF_INFO;
-    wcscpy_s(g_nid.szInfo, text);
-    wcscpy_s(g_nid.szInfoTitle, title);
-    g_nid.dwInfoFlags = NIIF_INFO;
-    g_nid.uTimeout = 10000;
-    Shell_NotifyIconW(NIM_MODIFY, &g_nid);
-}
-
 }  // namespace
+
+// 设置进程 DPI awareness：避免高 DPI 屏上 Overlay 字体/坐标被系统虚拟化缩放而模糊。
+void EnableDpiAwareness() {
+#if defined(_WIN32)
+    // 优先使用每显示器 DPI aware V2（Windows 10 1703+）；
+    // 动态链接调用以避免在旧系统上加载失败。
+    HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    if (user32) {
+        using Fn = BOOL(WINAPI*)(DPI_AWARENESS_CONTEXT);
+        auto setDpi = reinterpret_cast<Fn>(
+            GetProcAddress(user32, "SetProcessDpiAwarenessContext"));
+        if (setDpi &&
+            setDpi(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) {
+            return;
+        }
+    }
+    // 回退：兼容旧系统
+    HMODULE shcore = GetModuleHandleW(L"shcore.dll");
+    if (shcore) {
+        using Fn = HRESULT(WINAPI*)(int);
+        auto setAware = reinterpret_cast<Fn>(
+            GetProcAddress(shcore, "SetProcessDpiAwareness"));
+        if (setAware) setAware(1);  // PROCESS_PER_MONITOR_DPI_AWARE
+    } else {
+        SetProcessDPIAware();
+    }
+#endif
+}
 
 int main(int argc, char** argv) {
     // 解析参数：--selftest[=拼音] 非交互自检，其余为词典路径。
@@ -384,6 +423,9 @@ int main(int argc, char** argv) {
             pos.push_back(a);
         }
     }
+
+    // 自检模式或正常启动前都先设置 DPI awareness（影响 GetSystemMetrics 等返回值）
+    EnableDpiAwareness();
 
 #if defined(_WIN32)
     if (selftest) {
@@ -409,18 +451,35 @@ int main(int argc, char** argv) {
 
     // 自检模式
     if (selftest) {
+        // 自检输出同时写文件（selftest_out.txt），
+        // 因 AllocConsole 打开的独立控制台无法被管道/批处理捕获。
+        FILE* of = std::fopen("selftest_out.txt", "w");
+
+        auto emit = [&](const std::string& line) {
+            std::printf("%s", line.c_str());
+            std::fflush(stdout);
+            if (of) {
+                std::fputs(line.c_str(), of);
+                std::fputc('\n', of);
+            }
+        };
+
         std::string py = selftest_py.empty() ? "ni" : selftest_py;
         std::string digits = t9::PinyinToDigits(py);
-        std::printf("[自检] 词典: %s (%s)\n", sys_dict.c_str(), dict_ok ? "OK" : "FAILED");
-        std::printf("[自检] 拼音=%s -> T9数字=%s\n", py.c_str(), digits.c_str());
+        emit("[自检] 词典: " + sys_dict + " (" + (dict_ok ? "OK" : "FAILED") + ")");
+        emit("[自检] 拼音=" + py + " -> T9数字=" + digits);
+
+        engine.Clear();
         for (char d : digits) engine.PushKey(d);
-        std::printf("[自检] 拼音展开: ");
-        for (const auto& s : engine.PinyinCandidates(20)) std::printf("%s ", s.c_str());
-        std::printf("\n");
+        std::string pyline = "[自检] 拼音展开: ";
+        for (const auto& s : engine.PinyinCandidates(20)) pyline += s + " ";
+        emit(pyline);
         auto cands = engine.HanziCandidates(50);
-        std::printf("[自检] 汉字候选(%zu): ", cands.size());
-        for (const auto& c : cands) std::printf("%s ", c.c_str());
-        std::printf("\n");
+        std::string hzline = "[自检] 汉字候选(" + std::to_string(cands.size()) + "): ";
+        for (const auto& c : cands) hzline += c + " ";
+        emit(hzline);
+
+        if (of) std::fclose(of);
         return (dict_ok && !cands.empty()) ? 0 : 1;
     }
 
@@ -453,11 +512,20 @@ int main(int argc, char** argv) {
     bool has_ally = ally_hid.IsSupported();
 
     // 初始模式设置
-    // 启动时不切换硬件模式，保持设备当前状态。
-    // ROG Ally 始终保持游戏手柄模式（XInput 可用），IME 关闭时用软件 DesktopController。
+    // 启动即开启 IME（start_enabled=true）时确保处于硬件游戏手柄模式；
+    // 启动时 IME 关闭则保持设备当前状态，不自动切换（首次切换 IME 时生效）。
     // 非 ROG Ally：始终使用软件 DesktopController 模拟桌面操控。
     if (has_ally) {
-        WriteLog("[Init] 检测到 ROG Ally，启动时不切换模式（保持当前状态）\n");
+        if (ime.Enabled()) {
+            if (!ally_hid.SetGamepadMode()) {
+                std::string err = std::string("[Init] SetGamepadMode 失败: ")
+                                + ally_hid.LastError() + "\n";
+                WriteLog(err.c_str());
+            }
+            WriteLog("[Init] 检测到 ROG Ally，启动即开启 IME -> 游戏手柄模式\n");
+        } else {
+            WriteLog("[Init] 检测到 ROG Ally，启动时 IME 关闭，保持当前模式\n");
+        }
     } else {
         std::string err = std::string("[Init] 未检测到 ROG Ally: ")
                         + ally_hid.LastError() + "\n";
@@ -483,6 +551,10 @@ int main(int argc, char** argv) {
     // 创建托盘图标
     HINSTANCE hinst = GetModuleHandleW(nullptr);
     HWND tray_hwnd = CreateTrayWindow(hinst);
+    if (!tray_hwnd) {
+        WriteLog("[错误] 无法创建托盘窗口\n");
+        return 1;
+    }
     AddTrayIcon(tray_hwnd);
     g_auto_start = IsAutoStartEnabled();
 
@@ -504,8 +576,12 @@ int main(int argc, char** argv) {
 
     // 注册退出热键（Ctrl+Alt+Q）和切换热键（Ctrl+Alt+E）
 #if defined(_WIN32)
-    RegisterHotKey(nullptr, kQuitHotkeyId, MOD_CONTROL | MOD_ALT, 'Q');
-    RegisterHotKey(nullptr, kToggleHotkeyId, MOD_CONTROL | MOD_ALT, 'E');
+    if (!RegisterHotKey(nullptr, kQuitHotkeyId, MOD_CONTROL | MOD_ALT, 'Q')) {
+        WriteLog("[Init] 注册退出热键 Ctrl+Alt+Q 失败\n");
+    }
+    if (!RegisterHotKey(nullptr, kToggleHotkeyId, MOD_CONTROL | MOD_ALT, 'E')) {
+        WriteLog("[Init] 注册切换热键 Ctrl+Alt+E 失败\n");
+    }
 #endif
 
     // 首次轮询
@@ -515,6 +591,9 @@ int main(int argc, char** argv) {
 
     bool running = true;
     g_running = &running;
+
+    // 编辑快捷键高亮状态（触发时高亮、窗口期结束后熄灭，变化需重绘）
+    char prev_edit_hl = 0;
 
     while (running) {
         // 处理 Win32 消息（托盘、退出热键、Overlay 重绘等）
@@ -540,38 +619,16 @@ int main(int argc, char** argv) {
         bool was_enabled = ime.Enabled();
         bool changed = ime.Update(pad);
 
+        // 编辑快捷键高亮状态变化（触发/熄灭）也需刷新界面
+        char edit_hl = ime.EditHighlight();
+        if (edit_hl != prev_edit_hl) {
+            prev_edit_hl = edit_hl;
+            changed = true;
+        }
+
         // 手柄快捷键切换 IME：同步显示/隐藏界面 + 模式切换
         if (ime.Enabled() != was_enabled) {
-            bool en = ime.Enabled();
-            WriteLog(en ? "[Hotkey] IME 开启\n" : "[Hotkey] IME 关闭\n");
-            overlay.SetVisible(en);
-            if (en) {
-                overlay.Refresh(MakeOverlayState(engine, ime, cfg, pad.Connected()));
-            }
-            // 硬件模式策略：
-            //   ROG Ally 始终保持游戏手柄模式（XInput 可用），确保 Start 键始终可检测。
-            //   IME 关闭时不切换到硬件鼠标模式，而是用软件 DesktopController 模拟桌面操控。
-            //   （SetMouseMode 会导致 XInput 停止工作，Start 键无法检测，快捷键失效。）
-            if (has_ally && en) {
-                if (!ally_hid.SetGamepadMode()) {
-                    // 游戏手柄模式切换失败时降级为软件模式
-                    has_ally = false;
-                    g_has_ally = false;
-                    std::string err = std::string("[Hotkey] SetGamepadMode 失败: ")
-                                    + ally_hid.LastError() + "\n";
-                    WriteLog(err.c_str());
-                }
-            }
-            // 软件桌面控制器：IME 关闭时对所有设备激活（含 ROG Ally）
-            desktop.SetActive(!en);
-            // 关闭界面（IME 关闭）后向前台发送两次 Ctrl+Alt+C
-            if (!en) desktop.PressCtrlAltCTwice();
-            // 刷新两个控制器的内部状态，防止过期状态导致按键功能不生效
-            desktop.ResetState();
-            ime.ResetState();
-            WriteLog(en ? "[Hotkey] -> 游戏手柄输入模式\n"
-                          : "[Hotkey] -> 桌面操控模式（软件）\n");
-            UpdateTrayTooltip(en);
+            ApplyImeEnabled(ime.Enabled());
             changed = true;
         }
 

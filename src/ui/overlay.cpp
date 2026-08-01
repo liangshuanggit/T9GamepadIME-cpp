@@ -5,14 +5,15 @@
 #include "t9/keypad.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace ui {
 
 namespace {
 
 // ---- 窗口尺寸 ----
-constexpr int kWinW = 440;
-constexpr int kWinH = 560;
+constexpr int kWinW = 500;
+constexpr int kWinH = 640;  // 适配 720p 屏幕（工作区约 672px），大字体布局
 
 // ---- 颜色方案 ----
 constexpr COLORREF kBg         = RGB(18, 20, 28);
@@ -31,57 +32,43 @@ constexpr COLORREF kTextGreen  = RGB(80, 220, 120);
 constexpr COLORREF kTextGray   = RGB(110, 115, 130);
 constexpr COLORREF kTextAmber  = RGB(255, 200, 80);    // 标点琥珀色
 constexpr COLORREF kSelectBg   = RGB(50, 120, 210);
+constexpr COLORREF kInputBg    = RGB(44, 52, 74);      // 当前输入数字串底色
 
 // ---- 布局常量 ----
-constexpr int kPadding     = 18;
-constexpr int kCellW       = 100;
-constexpr int kCellH       = 78;
-constexpr int kGridW       = kCellW * 3;              // 300
-constexpr int kGridH       = kCellH * 3;              // 234
-constexpr int kGridOriginX = (kWinW - kGridW) / 2;    // 70
-constexpr int kRowH        = 32;
+constexpr int kPadding = 20;
+constexpr int kRowH    = 34;   // 候选行高（大字体）
+
+// ---- 纵向布局（自上而下分区）----
+constexpr int kStatusY   = 12;    // 状态行（● 开启 / 手柄 / 退出）
+constexpr int kSep1      = 46;    // 分隔线 1
+constexpr int kDigitsY   = 56;    // [数字] 行
+constexpr int kPinyinY   = 108;   // [拼音] 行
+constexpr int kSep2      = 142;   // 分隔线 2
+constexpr int kCandTitle = 152;   // 候选标题
+constexpr int kCommitted = 300;   // 已上屏（条件显示）
+constexpr int kSep3      = 330;   // 分隔线 3（键区上方）
+constexpr int kSep4      = 612;   // 分隔线 4（键区下方）
+constexpr int kEditY     = 618;   // 编辑快捷键栏（单行文字）
+
+// ---- 扇形键区（中心静止位 + 8 方向扇叶）----
+constexpr int   kFanCx     = kWinW / 2;          // 键区中心 X（水平居中）
+constexpr int   kFanCy     = 470;                // 键区中心 Y（覆盖层内相对位置）
+constexpr int   kFanRInner = 32;                 // 内环半径（中心静止位半径）
+constexpr int   kFanROuter = 135;                // 外环半径（扇叶外缘）
+constexpr int   kFanGap    = 3;                  // 扇叶之间/与内环的间隙(px)
 
 // ---- 字体 ----
-struct FontSet {
-    HFONT title     = nullptr;  // 18px 状态行
-    HFONT label     = nullptr;  // 20px 标签/正文
-    HFONT digit     = nullptr;  // 32px 粗体 九宫格数字
-    HFONT small     = nullptr;  // 17px 小字（字母、提示）
-    HFONT candidate = nullptr;  // 22px 候选词
+struct FontDesc {
+    int size;
+    int weight;
 };
 
-FontSet CreateFonts() {
-    FontSet fs;
-    const wchar_t* family = L"Microsoft YaHei";
-    fs.title = CreateFontW(18, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
-                           DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                           CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                           DEFAULT_PITCH | FF_DONTCARE, family);
-    fs.label = CreateFontW(20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                           DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                           CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                           DEFAULT_PITCH | FF_DONTCARE, family);
-    fs.digit = CreateFontW(32, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-                           DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                           CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                           DEFAULT_PITCH | FF_DONTCARE, family);
-    fs.small = CreateFontW(17, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                           DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                           CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                           DEFAULT_PITCH | FF_DONTCARE, family);
-    fs.candidate = CreateFontW(22, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                               DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                               CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                               DEFAULT_PITCH | FF_DONTCARE, family);
-    return fs;
-}
-
-void DestroyFonts(FontSet& fs) {
-    if (fs.title)     { DeleteObject(fs.title);     fs.title = nullptr; }
-    if (fs.label)     { DeleteObject(fs.label);     fs.label = nullptr; }
-    if (fs.digit)     { DeleteObject(fs.digit);     fs.digit = nullptr; }
-    if (fs.small)     { DeleteObject(fs.small);     fs.small = nullptr; }
-    if (fs.candidate) { DeleteObject(fs.candidate); fs.candidate = nullptr; }
+// 按名称创建单个字体
+HFONT CreateOneFont(const wchar_t* family, int size, int weight) {
+    return CreateFontW(size, 0, 0, 0, weight, FALSE, FALSE, FALSE,
+                       DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                       CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                       DEFAULT_PITCH | FF_DONTCARE, family);
 }
 
 // UTF-8 -> UTF-16
@@ -128,27 +115,6 @@ void FillRectColor(HDC hdc, int x, int y, int w, int h, COLORREF c) {
     DeleteObject(br);
 }
 
-// 绘制矩形边框
-void FrameRectColor(HDC hdc, int x, int y, int w, int h, COLORREF c) {
-    RECT rc = {x, y, x + w, y + h};
-    HBRUSH br = CreateSolidBrush(c);
-    FrameRect(hdc, &rc, br);
-    DeleteObject(br);
-}
-
-// 绘制粗边框（用于高亮格子）
-void DrawThickBorder(HDC hdc, int x, int y, int w, int h,
-                     COLORREF c, int thickness) {
-    HPEN pen = CreatePen(PS_SOLID, thickness, c);
-    HGDIOBJ old = SelectObject(hdc, pen);
-    HBRUSH br = (HBRUSH)GetStockObject(NULL_BRUSH);
-    HGDIOBJ oldBr = SelectObject(hdc, br);
-    Rectangle(hdc, x, y, x + w, y + h);
-    SelectObject(hdc, old);
-    SelectObject(hdc, oldBr);
-    DeleteObject(pen);
-}
-
 // 绘制水平分隔线
 void DrawSeparator(HDC hdc, int y) {
     HPEN pen = CreatePen(PS_SOLID, 1, kSeparator);
@@ -156,6 +122,75 @@ void DrawSeparator(HDC hdc, int y) {
     MoveToEx(hdc, kPadding, y, nullptr);
     LineTo(hdc, kWinW - kPadding, y);
     SelectObject(hdc, old);
+    DeleteObject(pen);
+}
+
+// 极坐标 -> 屏幕坐标（角度弧度制，X 右为正，Y 上为正）
+POINT PolarToPoint(int cx, int cy, double radius, double angle_rad) {
+    POINT p{};
+    p.x = cx + static_cast<int>(std::lround(radius * std::cos(angle_rad)));
+    p.y = cy - static_cast<int>(std::lround(radius * std::sin(angle_rad)));
+    return p;
+}
+
+// 构造扇形（圆环扇叶）的顶点序列：
+// 内缘圆弧（inner_radius -> outer_radius，a0 -> a1）再逆序描回。
+// gap：收缩半径产生的间隙（沿径向向中心收缩）。
+std::vector<POINT> BuildFanPoints(int cx, int cy, double r_in, double r_out,
+                                  double a0, double a1, double gap) {
+    const int kArcPts = 10;  // 每条弧的采样点数
+    std::vector<POINT> pts;
+    pts.reserve(kArcPts * 2);
+    for (int i = 0; i < kArcPts; ++i) {
+        double a = a0 + (a1 - a0) * i / (kArcPts - 1);
+        pts.push_back(PolarToPoint(cx, cy, r_out - gap, a));
+    }
+    for (int i = kArcPts - 1; i >= 0; --i) {
+        double a = a0 + (a1 - a0) * i / (kArcPts - 1);
+        pts.push_back(PolarToPoint(cx, cy, r_in + gap, a));
+    }
+    return pts;
+}
+
+// 绘制实心扇形键（圆环扇叶），用 Polygon 填充并描边
+void FillFanColor(HDC hdc, int cx, int cy, double r_in, double r_out,
+                  double a0, double a1, COLORREF c, COLORREF border,
+                  int border_width = 1) {
+    std::vector<POINT> pts =
+        BuildFanPoints(cx, cy, r_in, r_out, a0, a1, kFanGap);
+    HBRUSH br = CreateSolidBrush(c);
+    HPEN pen = CreatePen(PS_SOLID, border_width, border);
+    HGDIOBJ oldBr = SelectObject(hdc, br);
+    HGDIOBJ oldPen = SelectObject(hdc, pen);
+    Polygon(hdc, pts.data(), static_cast<int>(pts.size()));
+    SelectObject(hdc, oldPen);
+    SelectObject(hdc, oldBr);
+    DeleteObject(pen);
+    DeleteObject(br);
+}
+
+// 绘制实心圆（中心静止位）
+void FillCircleColor(HDC hdc, int cx, int cy, int r, COLORREF c) {
+    HBRUSH br = CreateSolidBrush(c);
+    HPEN pen = CreatePen(PS_SOLID, 1, c);
+    HGDIOBJ oldBr = SelectObject(hdc, br);
+    HGDIOBJ oldPen = SelectObject(hdc, pen);
+    Ellipse(hdc, cx - r, cy - r, cx + r + 1, cy + r + 1);
+    SelectObject(hdc, oldPen);
+    SelectObject(hdc, oldBr);
+    DeleteObject(pen);
+    DeleteObject(br);
+}
+
+// 绘制圆环描边（空心圆）
+void FrameCircleColor(HDC hdc, int cx, int cy, int r, COLORREF c) {
+    HPEN pen = CreatePen(PS_SOLID, 1, c);
+    HGDIOBJ oldPen = SelectObject(hdc, pen);
+    HBRUSH br = (HBRUSH)GetStockObject(NULL_BRUSH);
+    HGDIOBJ oldBr = SelectObject(hdc, br);
+    Ellipse(hdc, cx - r, cy - r, cx + r + 1, cy + r + 1);
+    SelectObject(hdc, oldBr);
+    SelectObject(hdc, oldPen);
     DeleteObject(pen);
 }
 
@@ -168,8 +203,28 @@ void DrawSeparator(HDC hdc, int y) {
 Overlay::Overlay() = default;
 Overlay::~Overlay() { Destroy(); }
 
+void Overlay::EnsureFonts() {
+    if (fonts_.title) return;  // 已创建
+    const wchar_t* family = L"Microsoft YaHei";
+    fonts_.title     = CreateOneFont(family, 24, FW_SEMIBOLD);
+    fonts_.label     = CreateOneFont(family, 20, FW_NORMAL);
+    fonts_.digit     = CreateOneFont(family, 36, FW_BOLD);
+    fonts_.small     = CreateOneFont(family, 17, FW_NORMAL);
+    fonts_.candidate = CreateOneFont(family, 26, FW_NORMAL);
+    fonts_.big       = CreateOneFont(family, 40, FW_BOLD);
+}
+
+void Overlay::DestroyFonts() {
+    if (fonts_.title)     { DeleteObject(fonts_.title);     fonts_.title = nullptr; }
+    if (fonts_.label)     { DeleteObject(fonts_.label);     fonts_.label = nullptr; }
+    if (fonts_.digit)     { DeleteObject(fonts_.digit);     fonts_.digit = nullptr; }
+    if (fonts_.small)     { DeleteObject(fonts_.small);     fonts_.small = nullptr; }
+    if (fonts_.candidate) { DeleteObject(fonts_.candidate); fonts_.candidate = nullptr; }
+    if (fonts_.big)       { DeleteObject(fonts_.big);       fonts_.big = nullptr; }
+}
+
 bool Overlay::Create(float opacity) {
-    (void)opacity;  // 不再使用透明度
+    opacity_ = opacity < 0.0f ? 0.0f : (opacity > 1.0f ? 1.0f : opacity);
 
     HINSTANCE hinst = GetModuleHandleW(nullptr);
 
@@ -187,16 +242,28 @@ bool Overlay::Create(float opacity) {
 
     RegisterClassExW(&wc);
 
-    // 定位到屏幕右下角，留出任务栏空间
-    int sw = GetSystemMetrics(SM_CXSCREEN);
-    int sh = GetSystemMetrics(SM_CYSCREEN);
-    int margin_right  = 20;
-    int margin_bottom = 64;
-    int x = sw - width_  - margin_right;
-    int y = sh - height_ - margin_bottom;
+    // 定位到前台窗口所在显示器的右下角（多显示器时跟随当前使用中的屏幕），
+    // 无前台窗口时回退到主显示器工作区。
+    RECT wa = {};
+    HMONITOR mon = MonitorFromWindow(GetForegroundWindow(), MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = {};
+    mi.cbSize = sizeof(mi);
+    if (mon && GetMonitorInfoW(mon, &mi)) {
+        wa = mi.rcWork;
+    } else {
+        SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
+    }
+    int x = wa.right  - width_  - 20;
+    int y = wa.bottom - height_ - 20;
+    if (y < 0) y = 0;  // 屏幕太矮时贴顶，避免窗口部分移出屏幕
+
+    DWORD ex_style = WS_EX_TRANSPARENT | WS_EX_TOPMOST |
+                     WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+    // 半透明时启用分层窗口，否则保持纯 OPAQUE（性能更好）
+    if (opacity_ < 1.0f) ex_style |= WS_EX_LAYERED;
 
     hwnd_ = CreateWindowExW(
-        WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+        ex_style,
         wc.lpszClassName,
         L"T9 Gamepad IME",
         WS_POPUP,
@@ -205,6 +272,12 @@ bool Overlay::Create(float opacity) {
 
     if (!hwnd_) return false;
 
+    // 应用整体透明度
+    if (opacity_ < 1.0f) {
+        BYTE alpha = static_cast<BYTE>(opacity_ * 255.0f);
+        SetLayeredWindowAttributes(hwnd_, 0, alpha, LWA_ALPHA);
+    }
+
     // 初始隐藏，由调用方通过 SetVisible() 控制显示时机
     ShowWindow(hwnd_, SW_HIDE);
     UpdateWindow(hwnd_);
@@ -212,6 +285,14 @@ bool Overlay::Create(float opacity) {
 }
 
 void Overlay::Destroy() {
+    DestroyFonts();
+    if (mem_dc_) {
+        if (mem_old_) SelectObject(mem_dc_, mem_old_);
+        mem_old_ = nullptr;
+        DeleteDC(mem_dc_);
+        mem_dc_ = nullptr;
+    }
+    if (mem_bmp_) { DeleteObject(mem_bmp_); mem_bmp_ = nullptr; }
     if (hwnd_) {
         DestroyWindow(hwnd_);
         hwnd_ = nullptr;
@@ -269,149 +350,223 @@ LRESULT CALLBACK Overlay::WndProc(HWND hwnd, UINT msg,
     }
 }
 
-// ---- 绘制总入口（双缓冲） ----
+// ---- 绘制总入口（双缓冲，缓冲持久复用） ----
+
+void Overlay::EnsureBackBuffer(HDC hdc) {
+    if (mem_dc_ && mem_bmp_ && mem_old_) return;  // 已就绪
+    if (!mem_dc_) mem_dc_ = CreateCompatibleDC(hdc);
+    if (!mem_bmp_) mem_bmp_ = CreateCompatibleBitmap(hdc, width_, height_);
+    if (mem_dc_ && mem_bmp_ && !mem_old_) {
+        mem_old_ = SelectObject(mem_dc_, mem_bmp_);
+    }
+    // 位图创建失败：释放已创建的 DC，避免泄漏
+    if (mem_dc_ && !mem_bmp_) {
+        DeleteDC(mem_dc_);
+        mem_dc_ = nullptr;
+    }
+}
 
 void Overlay::OnPaint(HDC hdc) {
-    HDC mem = CreateCompatibleDC(hdc);
-    HBITMAP bmp = CreateCompatibleBitmap(hdc, width_, height_);
-    HGDIOBJ oldBmp = SelectObject(mem, bmp);
+    EnsureBackBuffer(hdc);
+    if (!mem_dc_ || !mem_bmp_) return;
+
+    EnsureFonts();
 
     // 背景
-    FillRectColor(mem, 0, 0, width_, height_, kPanelBg);
-
-    FontSet fonts = CreateFonts();
+    FillRectColor(mem_dc_, 0, 0, width_, height_, kPanelBg);
 
     // 状态行（顶部）
-    DrawStatus(mem);
+    DrawStatus(mem_dc_);
 
-    // 信息行（数字/拼音）— 紧接状态行
-    int info_y = kPadding + 32;
-    DrawSeparator(mem, info_y);
-    DrawInfoLines(mem, info_y + 10);
+    // 信息行（数字/拼音）
+    DrawSeparator(mem_dc_, kSep1);
+    DrawInfoLines(mem_dc_, kDigitsY);
 
     // 候选区（无输入时显示标点候选）
-    int cand_y = info_y + 10 + kRowH * 2 + 10;
-    DrawSeparator(mem, cand_y);
-    DrawCandidates(mem, cand_y + 10);
+    DrawSeparator(mem_dc_, kSep2);
+    DrawCandidates(mem_dc_, kCandTitle);
 
-    // 已上屏（紧接候选区，无额外预留空间）
-    int commit_y = cand_y + 10 + kRowH * 3;
+    // 已上屏（紧接候选区）
     if (!state_.last_committed.empty()) {
-        DrawCommitted(mem, commit_y);
+        DrawCommitted(mem_dc_, kCommitted);
     }
 
-    // 九宫格（紧跟内容区，无空隙）
-    int grid_y = commit_y + kRowH;
-    DrawGrid(mem, kGridOriginX, grid_y);
+    // 扇形键区（中心静止位 + 8 方向扇叶）
+    DrawSeparator(mem_dc_, kSep3);
+    DrawGrid(mem_dc_, kFanCx, kFanCy);
 
-    DestroyFonts(fonts);
+    // 编辑快捷键栏（底部，扇形键区下方；触发时对应项高亮）
+    DrawSeparator(mem_dc_, kSep4);
+    DrawEditShortcuts(mem_dc_, kEditY);
 
-    BitBlt(hdc, 0, 0, width_, height_, mem, 0, 0, SRCCOPY);
-
-    SelectObject(mem, oldBmp);
-    DeleteObject(bmp);
-    DeleteDC(mem);
+    BitBlt(hdc, 0, 0, width_, height_, mem_dc_, 0, 0, SRCCOPY);
 }
 
 // ---- 状态行 ----
 
 void Overlay::DrawStatus(HDC hdc) {
-    FontSet fonts = CreateFonts();
-
-    // 状态文字
+    // 开关状态（大号加粗，直观）
     std::string status = state_.enabled ? "● 开启" : "○ 关闭";
     COLORREF sc = state_.enabled ? kTextGreen : kTextGray;
-    TextOutUtf8(hdc, fonts.title, kPadding, kPadding, status, sc);
+    TextOutUtf8(hdc, fonts_.title, kPadding, kStatusY, status, sc);
 
     // 手柄连接状态
     std::string pad = state_.pad_connected ? "手柄已连接" : "手柄未连接";
     COLORREF pc = state_.pad_connected ? kTextGreen : RGB(220, 80, 80);
-    TextOutUtf8(hdc, fonts.small, 90, kPadding + 3, pad, pc);
-
-    // 快捷键
-    std::string hk = "键: " + state_.hotkey_desc;
-    TextOutUtf8(hdc, fonts.small, 200, kPadding + 3, hk, kTextDim);
+    TextOutUtf8(hdc, fonts_.small, 150, kStatusY + 5, pad, pc);
 
     // 退出提示
-    TextOutUtf8(hdc, fonts.small, kWinW - kPadding, kPadding + 3,
+    TextOutUtf8(hdc, fonts_.small, kWinW - kPadding, kStatusY + 5,
                 "Ctrl+Alt+Q 退出", kTextDim, TA_RIGHT);
-
-    DestroyFonts(fonts);
 }
 
-// ---- 九宫格 ----
+// ---- 扇形键区 ----
+
+// 在极坐标位置绘制并居中（横向纵向都居中）的文字
+static void DrawFanText(HDC hdc, HFONT font, int cx, int cy,
+                        double r, double a, const std::string& text,
+                        COLORREF color) {
+    std::wstring ws = W(text);
+    HFONT old = (HFONT)SelectObject(hdc, font);
+    SIZE sz = {};
+    GetTextExtentPoint32W(hdc, ws.c_str(), static_cast<int>(ws.size()), &sz);
+    SelectObject(hdc, old);
+    POINT p = PolarToPoint(cx, cy, r, a);
+    TextOutUtf8(hdc, font, p.x - sz.cx / 2, p.y - sz.cy / 2, text, color,
+                TA_LEFT);
+}
 
 void Overlay::DrawGrid(HDC hdc, int ox, int oy) {
-    FontSet fonts = CreateFonts();
     const t9::KeyCell* cells = t9::GridCells();
     char active = state_.enabled ? t9::DigitForDirection(state_.pointing) : 0;
 
-    for (int row = 0; row < 3; ++row) {
-        for (int col = 0; col < 3; ++col) {
-            const t9::KeyCell& c = cells[row * 3 + col];
-            int cx = ox + col * kCellW;
-            int cy = oy + row * kCellH;
-            bool is_center = (c.digit == '\0');
-            bool is_active = (c.digit != '\0' && c.digit == active);
+    static const double kPi         = 3.14159265358979323846;
+    static const double kHalfSector = kPi / 8.0;        // 45°/2 = 22.5°
+    static const double kAngGap     = 0.06;             // 扇叶间角间隙（弧度，约 3.4°）
+    static const double kDrawHalf   = kHalfSector - kAngGap / 2.0;
 
-            // 格子背景
-            COLORREF bg;
-            if (is_active)      bg = kActiveBg;
-            else if (is_center) bg = kCenterBg;
-            else if (state_.enabled) bg = kCellBg;
-            else                bg = kCellBgDim;
-            FillRectColor(hdc, cx + 2, cy + 2, kCellW - 4, kCellH - 4, bg);
+    // 各方向中线角（行优先，与 GridCells() 顺序一致），0 rad = 右，逆时针增大。
+    static const double kSectorMid[9] = {
+        3 * kPi / 4,   // 0 左上(5)
+        kPi / 2,       // 1 上(2)
+        kPi / 4,       // 2 右上(3)
+        kPi,           // 3 左(4)
+        0,             // 4 中心（未用）
+        0,             // 5 右(6)
+        5 * kPi / 4,   // 6 左下(7)
+        3 * kPi / 2,   // 7 下(8)
+        7 * kPi / 4,   // 8 右下(9)
+    };
 
-            // 边框：高亮格子用粗边框 + 发光色
-            if (is_active) {
-                DrawThickBorder(hdc, cx + 1, cy + 1, kCellW - 2, kCellH - 2,
-                                kActiveGlow, 3);
-            } else {
-                FrameRectColor(hdc, cx, cy, kCellW, kCellH, kBorder);
-            }
+    // 径向文字位置：数字偏内，字母偏外
+    const double kDigitR   = kFanRInner + (kFanROuter - kFanRInner) * 0.40;
+    const double kLettersR = kFanRInner + (kFanROuter - kFanRInner) * 0.72;
 
-            if (is_center) {
-                // 中心点
-                TextOutUtf8(hdc, fonts.digit,
-                            cx + kCellW / 2, cy + kCellH / 2 - 18,
-                            "·", kTextDim, TA_CENTER);
-            } else {
-                // 数字（大）
-                COLORREF dc = is_active ? kTextBright :
-                              (state_.enabled ? kTextMain : kTextGray);
-                std::string d(1, c.digit);
-                TextOutUtf8(hdc, fonts.digit,
-                            cx + kCellW / 2, cy + 6,
-                            d, dc, TA_CENTER);
-                // 字母（小）
-                COLORREF lc = is_active ? kTextBright :
-                              (state_.enabled ? kTextDim : kTextGray);
-                TextOutUtf8(hdc, fonts.small,
-                            cx + kCellW / 2, cy + kCellH - 24,
-                            c.letters, lc, TA_CENTER);
-            }
-        }
+    for (int i = 0; i < 9; ++i) {
+        const t9::KeyCell& c = cells[i];
+        if (c.digit == '\0') continue;  // 中心静止位单独绘制
+
+        bool is_active = (c.digit == active);
+        double aMid = kSectorMid[i];
+        double a0 = aMid - kDrawHalf;
+        double a1 = aMid + kDrawHalf;
+
+        // 扇叶背景与描边
+        COLORREF bg = is_active ? kActiveBg :
+                      (state_.enabled ? kCellBg : kCellBgDim);
+        COLORREF border = is_active ? kActiveGlow : kBorder;
+        int bw = is_active ? 3 : 1;
+        FillFanColor(hdc, ox, oy, kFanRInner, kFanROuter,
+                     a0, a1, bg, border, bw);
+
+        // 数字（大）
+        COLORREF dc = is_active ? kTextBright :
+                      (state_.enabled ? kTextMain : kTextGray);
+        std::string d(1, c.digit);
+        DrawFanText(hdc, fonts_.digit, ox, oy, kDigitR, aMid, d, dc);
+
+        // 字母（小）
+        COLORREF lc = is_active ? kTextBright :
+                      (state_.enabled ? kTextDim : kTextGray);
+        DrawFanText(hdc, fonts_.small, ox, oy, kLettersR, aMid, c.letters, lc);
     }
 
-    DestroyFonts(fonts);
+    // 中心静止位（右摇杆回中区）
+    FillCircleColor(hdc, ox, oy, kFanRInner,
+                    state_.enabled ? kCenterBg : kCellBgDim);
+    FrameCircleColor(hdc, ox, oy, kFanRInner, kBorder);
+    DrawFanText(hdc, fonts_.small, ox, oy, 0, 0, "·", kTextDim);
+}
+
+// ---- 编辑快捷键栏 ----
+
+void Overlay::DrawEditShortcuts(HDC hdc, int y) {
+    // 四项：与 ImeController 的触发逻辑一一对应（编辑快捷键仅在 IME 开启时生效）
+    struct Item {
+        char key;         // 高亮标识（与控制器 EditHighlight() 返回值一致）
+        const char* combo;  // 组合键描述
+        const char* name;   // 功能名
+    };
+    static const Item kItems[] = {
+        {'A', "LB+A", "全选"},
+        {'X', "LB+X", "剪切"},
+        {'Y', "LB+Y", "复制"},
+        {'B', "LB+B", "粘贴"},
+    };
+
+    constexpr int kItemW   = 112;
+    constexpr int kItemGap = 10;
+
+    for (int i = 0; i < 4; ++i) {
+        int x = kPadding + i * (kItemW + kItemGap);
+        bool hl = state_.edit_highlight == kItems[i].key;
+        std::string text = std::string(kItems[i].combo) + " " + kItems[i].name;
+        int tw = TextWidth(hdc, fonts_.small, text);
+
+        if (hl) {
+            // 触发高亮：蓝底亮字
+            FillRectColor(hdc, x - 4, y - 3, kItemW + 8, 22, kActiveBg);
+            TextOutUtf8(hdc, fonts_.small, x + (kItemW - tw) / 2, y,
+                        text, kTextBright);
+        } else {
+            TextOutUtf8(hdc, fonts_.small, x + (kItemW - tw) / 2, y,
+                        text, kTextDim);
+        }
+    }
 }
 
 // ---- 数字 / 拼音行 ----
 
 void Overlay::DrawInfoLines(HDC hdc, int y) {
-    FontSet fonts = CreateFonts();
     COLORREF lc = state_.enabled ? kTextDim : kTextGray;
-    COLORREF vc = state_.enabled ? kTextMain : kTextGray;
 
-    // [数字]
-    TextOutUtf8(hdc, fonts.label, kPadding, y, "[数字]", lc);
-    TextOutUtf8(hdc, fonts.candidate, kPadding + 70, y - 2,
-                state_.digits.empty() ? "-" : state_.digits, vc);
+    // [数字] 标签 + 大号输入数字串（带底色条，直观醒目）
+    TextOutUtf8(hdc, fonts_.label, kPadding, y, "[数字]", lc);
+    std::string digits = state_.digits.empty() ? "-" : state_.digits;
+    constexpr int kBarW = 230;
+    constexpr int kBarH = 50;
+    FillRectColor(hdc, 110, y - 6, kBarW, kBarH, kInputBg);
+    HPEN pen = CreatePen(PS_SOLID, 1, kBorder);
+    HGDIOBJ oldPen = SelectObject(hdc, pen);
+    HBRUSH br = (HBRUSH)GetStockObject(NULL_BRUSH);
+    HGDIOBJ oldBr = SelectObject(hdc, br);
+    Rectangle(hdc, 110, y - 6, 110 + kBarW, y - 6 + kBarH);
+    SelectObject(hdc, oldBr);
+    SelectObject(hdc, oldPen);
+    DeleteObject(pen);
+    // 数字串过长时截断，避免超出底色条
+    if (TextWidth(hdc, fonts_.big, digits) > kBarW - 20) {
+        while (digits.size() > 1 &&
+               TextWidth(hdc, fonts_.big, digits) > kBarW - 20) {
+            digits.pop_back();
+        }
+    }
+    TextOutUtf8(hdc, fonts_.big, 122, y - 4, digits,
+                state_.enabled ? kTextBright : kTextGray);
 
-    // [拼音] — 用小字体显示，带音节分隔符（如 ni'hao'ma）
-    // 显示前 10 个拼音展开（已按音节数排序，少音节优先）
-    int y2 = y + kRowH;
-    TextOutUtf8(hdc, fonts.label, kPadding, y2, "[拼音]", lc);
+    // [拼音] — 显示前 10 个拼音展开（已按音节数排序，少音节优先）
+    int y2 = y + 52;
+    TextOutUtf8(hdc, fonts_.label, kPadding, y2, "[拼音]", lc);
     std::string py;
     size_t py_max = std::min<size_t>(state_.pinyin.size(), 10);
     for (size_t i = 0; i < py_max; ++i) {
@@ -420,15 +575,13 @@ void Overlay::DrawInfoLines(HDC hdc, int y) {
     }
     if (state_.pinyin.size() > py_max) py += " ...";
     if (py.empty()) py = "-";
-    TextOutUtf8(hdc, fonts.small, kPadding + 70, y2 + 2, py, vc);
-
-    DestroyFonts(fonts);
+    TextOutUtf8(hdc, fonts_.label, 110, y2 + 2, py,
+                state_.enabled ? kTextMain : kTextGray);
 }
 
 // ---- 候选区 ----
 
 void Overlay::DrawCandidates(HDC hdc, int y) {
-    FontSet fonts = CreateFonts();
     COLORREF lc = state_.enabled ? kTextDim : kTextGray;
 
     // 标题行：字母模式显示"[字母 ABC2abc]"，无输入时显示"[标点]"，否则显示"[候选]"
@@ -444,66 +597,63 @@ void Overlay::DrawCandidates(HDC hdc, int y) {
         title += " (" + std::to_string(state_.selected + 1) + "/" +
                  std::to_string(total) + ")";
     }
-    TextOutUtf8(hdc, fonts.label, kPadding, y, title,
+    TextOutUtf8(hdc, fonts_.label, kPadding, y, title,
                 state_.letter_mode ? kTextBright : lc);
 
+    // 开关快捷键提示（候选标题行右侧）
+    std::string hk = "开关键: " + state_.hotkey_desc;
+    TextOutUtf8(hdc, fonts_.small, kWinW - kPadding, y + 3, hk, kTextDim,
+                TA_RIGHT);
+
+    // 候选网格：每行 4 项，最多 3 行（大字号，选中项整格高亮）
     const auto& cands = state_.candidates;
     int start = state_.page_start;
     int psize = state_.page_size > 0 ? state_.page_size : 5;
     int end = std::min(start + psize, total);
 
-    int list_y = y + kRowH + 2;
-    int col_x = kPadding;
+    constexpr int kCols   = 4;
+    constexpr int kCellW  = 109;
+    constexpr int kGap    = 8;
+    constexpr int kRowGap = 2;
+    constexpr int kMaxRow = 3;
+    int list_y = y + 36;
+    int col = 0;
     int row = 0;
 
-    for (int i = start; i < end; ++i) {
+    for (int i = start; i < end && row < kMaxRow; ++i) {
+        int x = kPadding + col * (kCellW + kGap);
         bool sel = (i == state_.selected);
         std::string entry = std::to_string(i - start + 1) + "." + cands[i];
 
         if (sel) {
-            // 选中项背景
-            int tw = TextWidth(hdc, fonts.candidate, entry);
-            int pad = 6;
-            FillRectColor(hdc, col_x - pad, list_y - 3,
-                          tw + pad * 2, kRowH + 2, kSelectBg);
-            TextOutUtf8(hdc, fonts.candidate, col_x, list_y - 2,
+            // 选中项：整格高亮背景 + 亮字
+            FillRectColor(hdc, x, list_y - 4, kCellW, kRowH, kSelectBg);
+            TextOutUtf8(hdc, fonts_.candidate, x + 8, list_y - 4,
                         entry, kTextBright);
-            col_x += tw + pad * 2 + 14;
         } else {
-            TextOutUtf8(hdc, fonts.candidate, col_x, list_y - 2, entry,
+            TextOutUtf8(hdc, fonts_.candidate, x + 8, list_y - 4, entry,
                         state_.enabled ? kTextMain : kTextGray);
-            int tw = TextWidth(hdc, fonts.candidate, entry);
-            col_x += tw + 14;
         }
 
-        // 换行检查
-        if (col_x > kWinW - kPadding - 80 && i + 1 < end) {
-            col_x = kPadding;
-            list_y += kRowH;
+        if (++col >= kCols) {
+            col = 0;
+            list_y += kRowH + kRowGap;
             ++row;
-            // 最多显示 5 行候选
-            if (row >= 5) break;
         }
     }
-
-    DestroyFonts(fonts);
 }
 
 // ---- 已上屏 ----
 
 void Overlay::DrawCommitted(HDC hdc, int y) {
-    FontSet fonts = CreateFonts();
-    TextOutUtf8(hdc, fonts.label, kPadding, y, "[已上屏]", kTextGreen);
-    TextOutUtf8(hdc, fonts.candidate, kPadding + 80, y - 2,
+    TextOutUtf8(hdc, fonts_.label, kPadding, y, "[已上屏]", kTextGreen);
+    TextOutUtf8(hdc, fonts_.candidate, 130, y - 2,
                 state_.last_committed, kTextBright);
-    DestroyFonts(fonts);
 }
 
 // ---- 标点栏 ----
 
 void Overlay::DrawPunctuation(HDC hdc, int y) {
-    FontSet fonts = CreateFonts();
-
     // 常用中文标点（无输入时作为候选可直接选）
     static const char* kPuncts[] = {
         "，", "。", "、", "！", "？", "：", "；", "…",
@@ -512,7 +662,7 @@ void Overlay::DrawPunctuation(HDC hdc, int y) {
     constexpr int kPunctCount = sizeof(kPuncts) / sizeof(kPuncts[0]);
 
     // 标签
-    TextOutUtf8(hdc, fonts.label, kPadding, y, "[标点]", kTextAmber);
+    TextOutUtf8(hdc, fonts_.label, kPadding, y, "[标点]", kTextAmber);
 
     // 标点列表：两行排列
     int x = kPadding + 70;
@@ -521,8 +671,8 @@ void Overlay::DrawPunctuation(HDC hdc, int y) {
 
     for (int i = 0; i < kPunctCount; ++i) {
         std::string entry = std::to_string(i + 1) + "." + kPuncts[i];
-        TextOutUtf8(hdc, fonts.candidate, x, row_y, entry, pc);
-        int tw = TextWidth(hdc, fonts.candidate, entry);
+        TextOutUtf8(hdc, fonts_.candidate, x, row_y, entry, pc);
+        int tw = TextWidth(hdc, fonts_.candidate, entry);
         x += tw + 12;
 
         // 第 8 个后换行
@@ -531,8 +681,6 @@ void Overlay::DrawPunctuation(HDC hdc, int y) {
             row_y += kRowH;
         }
     }
-
-    DestroyFonts(fonts);
 }
 
 }  // namespace ui

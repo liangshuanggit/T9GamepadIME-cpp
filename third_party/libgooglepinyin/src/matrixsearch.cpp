@@ -1400,6 +1400,45 @@ size_t MatrixSearch::get_spl_start(const uint16 *&spl_start) {
   return spl_id_num_;
 }
 
+size_t MatrixSearch::get_sentence_lemma_num() {
+  if (!inited_ || 0 == pys_decoded_len_ ||
+      0 == matrix_[pys_decoded_len_].mtrx_nd_num)
+    return 0;
+
+  // The full sentence candidate is composed of lma_id_num_ lemmas.
+  // lma_id_num_ is maintained by get_spl_start_id(); call it to refresh.
+  get_spl_start_id();
+  return lma_id_num_;
+}
+
+void MatrixSearch::get_sentence_lemma_stats(size_t *total_lemmas,
+                                            size_t *multi_char_lemmas) {
+  if (NULL != total_lemmas)
+    *total_lemmas = 0;
+  if (NULL != multi_char_lemmas)
+    *multi_char_lemmas = 0;
+
+  if (!inited_ || 0 == pys_decoded_len_ ||
+      0 == matrix_[pys_decoded_len_].mtrx_nd_num)
+    return;
+
+  get_spl_start_id();
+
+  if (NULL != total_lemmas)
+    *total_lemmas = lma_id_num_;
+
+  if (NULL == multi_char_lemmas)
+    return;
+
+  // Each Chinese character maps to exactly one spelling id, so a lemma
+  // spanning >= 2 spelling ids is a multi-character word.
+  *multi_char_lemmas = 0;
+  for (size_t i = 0; i < lma_id_num_; i++) {
+    if (lma_start_[i + 1] - lma_start_[i] >= 2)
+      (*multi_char_lemmas)++;
+  }
+}
+
 size_t MatrixSearch::extend_dmi(DictExtPara *dep, DictMatchInfo *dmi_s) {
   if (dmi_pool_used_ >= kDmiPoolSize) return 0;
 
